@@ -91,7 +91,15 @@
                 s.canv2.height = 600;
                 s.ctx2.webkitImageSmoothingEnabled = false;
                 s.Loader.text(function() {});
-                s.Loader.text(function() {});
+
+                setTimeout(
+                        function() {
+                           s.Loader.dom_text.innerHTML = "BYE BYE";
+                        }, 6000
+                    );
+
+                
+
             },
             c_text: 0,
             dom_text: document.getElementById('loadTXT'),
@@ -109,7 +117,7 @@
                 }
             },
             TEXT: 'LOAD "FRATEPIETRO.COM"<br/>   ',
-            barsC: 2000,
+            barsC: 1000,
             bars: function() {
                 var c = s.ctx2,
                     x = 200,
