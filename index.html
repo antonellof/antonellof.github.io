@@ -130,12 +130,10 @@
                     function() {
                         //s.Loader.dom_text.className='progTXT';
                         s.Loader.menu();
+                        s.canv2.style.display = "none";
 
 
-
-
-
-                    }, 7500
+                    }, 8000
                 );
 
 
@@ -143,7 +141,7 @@
             c_text: 0,
             dom_text: document.getElementById('loadTXT'),
             printmenu: function() {
-
+                s.Loader.dom_text.innerHTML = "";
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>------MAIN MENU------';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<a href="javascript:s.Loader.about();">A</a>]BOUT';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>NICE [<a href="javascript:s.Loader.stuff();">S</a>]TUFF';
@@ -207,8 +205,7 @@
                             case 83:
                                 s.Loader.stuff();
                                 break;
-                            case 77:
-                                s.Loader.dom_text.innerHTML = "";
+                            case 77:                                
                                 s.Loader.printmenu();
                                 break;
                         }
