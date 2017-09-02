@@ -24,6 +24,7 @@
 
     a {
         color: #fff !important;
+        text-decoration: none !important;
     }
 
     .loader {
@@ -144,9 +145,9 @@
             printmenu: function() {
 
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>------MAIN MENU------';
-                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<span style="color:#fa3200">A</span>]BOUT';
-                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>NICE [<span style="color:#fa3200">S</span>]TUFF';
-                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>[<span style="color:#fa3200">C</span>]ONTACT';
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<a href="javascript:s.Loader.about();">A</a>]BOUT';
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>NICE [<a href="javascript:s.Loader.stuff();">S</a>]TUFF';
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>[<a href="javascript:s.Loader.contact();">C</a>]ONTACT';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/><br/>PLEASE PRESS A KEY...<br/>';
 
             },
@@ -158,7 +159,7 @@
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<div class="me"></div>';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>I’m a front-end & back-end developer. I live in Puglia (Italy).';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>I love Javascript, NodeJs, PHP, Angular & React!';
-                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<span style="color:#fa3200">M</span>]AIN MENU';
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<a href="javascript:s.Loader.printmenu();">M</a>]AIN MENU';
 
             },
             stuff: function() {
@@ -172,9 +173,9 @@
 
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>- Top stories about AngularJS on <a href="https://medium.com/tag/angularjs" target="_blank">Medium</a>.';
 
-                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>- <a href="https://code.facebook.com/projects/" target="_blank">Facebook Code</a> is the home of React & React Native!';                   
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>- <a href="https://code.facebook.com/projects/" target="_blank">Facebook Code</a> is the home of React & React Native!';
 
-                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<span style="color:#fa3200">M</span>]AIN MENU';
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<a href="javascript:s.Loader.printmenu();">M</a>]AIN MENU';
 
             },
             contact: function() {
@@ -183,7 +184,7 @@
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>-------';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>Drop me an email to <a href="mailto:antonello.f@gmail.com">antonello.f[at]gmail.com</a>';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>or tweet me at <a href="https://twitter.com/hack_the_cloud" target="_blank">hack_the_cloud</a>';
-                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<span style="color:#fa3200">M</span>]AIN MENU';
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<a href="javascript:s.Loader.printmenu();">M</a>]AIN MENU';
 
             },
 
