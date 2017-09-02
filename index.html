@@ -61,6 +61,62 @@
         content: "";
     }
 
+
+
+    .blink_text {
+        -webkit-animation-name: blinker;
+        -webkit-animation-duration: 1s;
+        -webkit-animation-timing-function: linear;
+        -webkit-animation-iteration-count: infinite;
+        -moz-animation-name: blinker;
+        -moz-animation-duration: 1s;
+        -moz-animation-timing-function: linear;
+        -moz-animation-iteration-count: infinite;
+        animation-name: blinker;
+        animation-duration: 1s;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        color: red;
+    }
+
+    @-moz-keyframes blinker {
+        0% {
+            opacity: 1.0;
+        }
+        50% {
+            opacity: 0.0;
+        }
+        100% {
+            opacity: 1.0;
+        }
+    }
+
+    @-webkit-keyframes blinker {
+        0% {
+            opacity: 1.0;
+        }
+        50% {
+            opacity: 0.0;
+        }
+        100% {
+            opacity: 1.0;
+        }
+    }
+
+    @keyframes blinker {
+        0% {
+            opacity: 1.0;
+        }
+        50% {
+            opacity: 0.0;
+        }
+        100% {
+            opacity: 1.0;
+        }
+    }
+
+
+
     .progTXT:after {
         background: none !important;
         content: none !important;
@@ -89,18 +145,20 @@
             <canvas id="tempCanv"></canvas>
         </div>
         <div class="loader">
+            <span id="commodorebasic">
             <p style="text-align: center">**** COMMODORE 64 BASIC V2.1 ****
                 <br/>
                 <br/> 64K RAM SYSTEM 38911 BASIC BYTES FREE
             </p>
-            <p>READY.
-                <br/><span id="loadTXT"><br/> </span></br>
-            </p>
+            READY. </br>                
+            </span>
+            <span id="loadTXT"><br/> </span></br>            
         </div>
     </div>
     <script type="text/javascript">
     var s = {
         canv2: document.getElementById('tempCanv'),
+        commodorebasic: document.getElementById('commodorebasic'),
         Loader: {
             ready: false,
             init: function() {
@@ -108,18 +166,19 @@
                 s.canv2.width = 800;
                 s.canv2.height = 600;
                 s.ctx2.webkitImageSmoothingEnabled = false;
+
                 s.Loader.text(function() {});
+
+
 
                 setTimeout(
                     function() {
-                        //s.Loader.dom_text.className='progTXT';
-                        s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>FOUND "4NTON3LL0"';
+                        s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>FOUND "4NTON3LL0"';
                     }, 6000
                 );
 
                 setTimeout(
                     function() {
-                        //s.Loader.dom_text.className='progTXT';
                         s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>READY';
                         s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>RUN<br/>';
 
@@ -128,9 +187,9 @@
 
                 setTimeout(
                     function() {
-                        //s.Loader.dom_text.className='progTXT';
                         s.Loader.menu();
                         s.canv2.style.display = "none";
+                        s.commodorebasic.style.display = "none";
 
 
                     }, 8000
@@ -144,8 +203,9 @@
                 s.Loader.dom_text.innerHTML = "";
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>------MAIN MENU------';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/>[<a href="javascript:s.Loader.about();">A</a>]BOUT';
-                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>NICE [<a href="javascript:s.Loader.stuff();">S</a>]TUFF';
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>[<a href="javascript:s.Loader.stuff();">S</a>]TUFF';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>[<a href="javascript:s.Loader.contact();">C</a>]ONTACT';
+                s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/>[<a href="javascript:s.Loader.quit();">Q</a>]QUIT';
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/><br/>PLEASE PRESS A KEY...<br/>';
 
             },
@@ -161,8 +221,6 @@
 
             },
             stuff: function() {
-
-
 
                 s.Loader.dom_text.innerHTML = "";
                 s.Loader.dom_text.innerHTML = s.Loader.dom_text.innerHTML + '<br/><br/><span style="color:#605e64">NICE STUFF</span>';
@@ -186,6 +244,16 @@
 
             },
 
+            quit: function() {
+                s.Loader.dom_text.innerHTML = "";
+                s.commodorebasic.style.display = "";
+                s.Loader.dom_text.classList.remove("progTXT");
+                s.Loader.dom_text.className = 'blink_text';
+          
+                document.onkeydown = null;
+
+            },
+
 
 
             menu: function(callback) {
@@ -205,7 +273,10 @@
                             case 83:
                                 s.Loader.stuff();
                                 break;
-                            case 77:                                
+                            case 81:
+                                s.Loader.quit();
+                                break;
+                            case 77:
                                 s.Loader.printmenu();
                                 break;
                         }
