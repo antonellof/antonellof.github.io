@@ -1,0 +1,66 @@
+# Site settings
+title: Antonello Fratepietro
+email: antonello.f at gmail dot com
+description: >-
+  Cloud engineer and developer passionate about building scalable Cloud and AI infrastructure.
+  Writings on software architecture, distributed systems, and engineering leadership.
+baseurl: "" # the subpath of your site, e.g. /blog
+url: "https://www.antonello.dev" # the base hostname & protocol for your site
+
+# Author information
+author:
+  name: Antonello Fratepietro
+  email: antonello.f at gmail dot com
+
+# Build settings
+markdown: kramdown
+theme: minima
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Minima settings
+minima:
+  skin: auto
+  
+  # Show excerpts on the homepage
+  show_excerpts: true
+  
+  # Date format
+  date_format: "%b %-d, %Y"
+  
+  # Navigation pages
+  nav_pages:
+    - about.md
+    - index.md
+  
+  # Social links
+  social_links:
+    - title: GitHub
+      icon: github
+      url: "https://github.com/antonellof"
+    - title: X (formerly Twitter)
+      icon: x-twitter
+      url: "https://x.com/hack_the_cloud"
+    - title: Website
+      icon: globe
+      url: "https://www.antonello.dev"
+
+# Exclude from processing
+exclude:
+  - backup/
+  - temp-minima/
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/
+  - .sass-cache/
+  - .jekyll-cache/
+  - gemfiles/
+  - README.md
+
+# Permalink structure
+permalink: /:year/:title/
