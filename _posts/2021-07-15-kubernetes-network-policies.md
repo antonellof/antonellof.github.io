@@ -1,35 +1,197 @@
 ---
 layout: post
-permalink: /2021/07-kubernetes-network-policies
 title: "Kubernetes Network Policies: Security Best Practices"
-date: 2021-07-26
-categories: [Architecture]
+date: 2021-07-15
+categories: [How-To]
 tags: [Kubernetes, Security, Network Policies]
-excerpt: "Add a brief 2-3 sentence description of this article."
+excerpt: "Secure Kubernetes clusters with network policies. Learn how to restrict pod-to-pod communication, implement default deny policies, and enforce network segmentation."
 ---
 
-# Kubernetes Network Policies: Security Best Practices
+Network policies control pod-to-pod communication. After securing production clusters, here's how to use them effectively.
 
-## Introduction
+## What are Network Policies?
 
-[Write introduction here - provide context and explain why this topic matters]
+Network policies:
+- **Control traffic** - Allow/deny pod communication
+- **Namespace isolation** - Segment by namespace
+- **Pod selectors** - Target specific pods
+- **Ingress/Egress** - Control both directions
 
-## [Main Section 1]
+## Basic Network Policy
 
-[Content here]
+### Default Deny
 
-## [Main Section 2]
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+```
 
-[Content here]
+### Allow Specific Traffic
 
-## [Main Section 3]
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-access
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+    ports:
+    - protocol: TCP
+      port: 8080
+```
 
-[Content here]
+## Common Patterns
+
+### Frontend to Backend
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-allow-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+    ports:
+    - protocol: TCP
+      port: 8080
+```
+
+### Database Access
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-allow-backend
+spec:
+  podSelector:
+    matchLabels:
+      app: database
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: backend
+    ports:
+    - protocol: TCP
+      port: 5432
+```
+
+### Cross-Namespace
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9090
+```
+
+## Egress Policies
+
+### Allow DNS
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+```
+
+### Allow External API
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-api
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+    ports:
+    - protocol: TCP
+      port: 443
+```
+
+## Best Practices
+
+1. **Default deny** - Start restrictive
+2. **Label pods** - Consistent labels
+3. **Test policies** - Verify connectivity
+4. **Document policies** - Clear purpose
+5. **Monitor violations** - Track blocked traffic
+6. **Use namespaces** - Logical grouping
+7. **Least privilege** - Minimal access
+8. **Review regularly** - Update as needed
 
 ## Conclusion
 
-[Summarize key takeaways]
+Network policies provide:
+- Pod isolation
+- Security boundaries
+- Traffic control
+- Defense in depth
+
+Start with default deny, then allow specific traffic. The patterns shown here secure production clusters.
 
 ---
 
-*Posted on July 26, 2021 | Tags: Kubernetes, Security, Network Policies | Category: Architecture*
+*Kubernetes Network Policies from July 2021, covering security best practices.*

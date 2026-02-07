@@ -1,35 +1,87 @@
 ---
 layout: post
-permalink: /2022/06-postgresql-partitioning
 title: "PostgreSQL Partitioning: Managing Large Tables"
-date: 2022-06-19
+date: 2022-06-15
 categories: [How-To]
-tags: [PostgreSQL, Partitioning, Scalability]
-excerpt: "Add a brief 2-3 sentence description of this article."
+tags: [PostgreSQL, Partitioning, Database]
+excerpt: "Partition large PostgreSQL tables: range partitioning, list partitioning, hash partitioning, and strategies for managing billions of rows efficiently."
 ---
 
-# PostgreSQL Partitioning: Managing Large Tables
+Partitioning improves performance for large tables. After partitioning production databases, here's how to use it effectively.
 
-## Introduction
+## Partitioning Types
 
-[Write introduction here - provide context and explain why this topic matters]
+### Range Partitioning
 
-## [Main Section 1]
+```sql
+CREATE TABLE orders (
+    id SERIAL,
+    user_id INTEGER,
+    total DECIMAL,
+    created_at TIMESTAMP
+) PARTITION BY RANGE (created_at);
 
-[Content here]
+CREATE TABLE orders_2022_q1 PARTITION OF orders
+    FOR VALUES FROM ('2022-01-01') TO ('2022-04-01');
 
-## [Main Section 2]
+CREATE TABLE orders_2022_q2 PARTITION OF orders
+    FOR VALUES FROM ('2022-04-01') TO ('2022-07-01');
+```
 
-[Content here]
+### List Partitioning
 
-## [Main Section 3]
+```sql
+CREATE TABLE users (
+    id SERIAL,
+    name VARCHAR(255),
+    country VARCHAR(2)
+) PARTITION BY LIST (country);
 
-[Content here]
+CREATE TABLE users_us PARTITION OF users
+    FOR VALUES IN ('US');
+
+CREATE TABLE users_eu PARTITION OF users
+    FOR VALUES IN ('GB', 'FR', 'DE');
+```
+
+### Hash Partitioning
+
+```sql
+CREATE TABLE events (
+    id SERIAL,
+    user_id INTEGER,
+    event_type VARCHAR(50),
+    data JSONB
+) PARTITION BY HASH (user_id);
+
+CREATE TABLE events_0 PARTITION OF events
+    FOR VALUES WITH (modulus 4, remainder 0);
+
+CREATE TABLE events_1 PARTITION OF events
+    FOR VALUES WITH (modulus 4, remainder 1);
+```
+
+## Best Practices
+
+1. **Choose partition key** - Based on queries
+2. **Partition size** - Keep partitions manageable
+3. **Indexes** - Per partition
+4. **Maintenance** - Regular cleanup
+5. **Monitor** - Track partition sizes
+6. **Query optimization** - Partition pruning
+7. **Backup strategy** - Per partition
+8. **Documentation** - Clear partition strategy
 
 ## Conclusion
 
-[Summarize key takeaways]
+Partitioning enables:
+- Better performance
+- Easier maintenance
+- Scalability
+- Query optimization
+
+Start with range partitioning, then optimize. The patterns shown here handle large tables effectively.
 
 ---
 
-*Posted on June 19, 2022 | Tags: PostgreSQL, Partitioning, Scalability | Category: How-To*
+*PostgreSQL partitioning from June 2022, covering range, list, and hash partitioning.*

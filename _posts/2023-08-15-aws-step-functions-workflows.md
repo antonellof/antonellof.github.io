@@ -1,35 +1,124 @@
 ---
 layout: post
-permalink: /2023/08-aws-step-functions-workflows
 title: "AWS Step Functions: Orchestrating Serverless Workflows"
 date: 2023-08-15
 categories: [How-To]
-tags: [AWS, Step Functions, Serverless, Orchestration]
-excerpt: "Add a brief 2-3 sentence description of this article."
+tags: [AWS, Step Functions, Serverless, Workflows]
+excerpt: "Orchestrate serverless workflows with AWS Step Functions: state machines, error handling, parallel execution, and building complex business processes."
 ---
 
-# AWS Step Functions: Orchestrating Serverless Workflows
+Step Functions orchestrate serverless workflows. After building production workflows, here's how to use them effectively.
 
-## Introduction
+## Step Functions Basics
 
-[Write introduction here - provide context and explain why this topic matters]
+### State Machine Definition
 
-## [Main Section 1]
+```json
+{
+  "Comment": "Order processing workflow",
+  "StartAt": "ValidateOrder",
+  "States": {
+    "ValidateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789:function:validate-order",
+      "Next": "ProcessPayment"
+    },
+    "ProcessPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789:function:process-payment",
+      "Next": "CreateShipment"
+    },
+    "CreateShipment": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789:function:create-shipment",
+      "End": true
+    }
+  }
+}
+```
 
-[Content here]
+### Parallel Execution
 
-## [Main Section 2]
+```json
+{
+  "ProcessInParallel": {
+    "Type": "Parallel",
+    "Branches": [
+      {
+        "StartAt": "SendEmail",
+        "States": {
+          "SendEmail": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:...:send-email",
+            "End": true
+          }
+        }
+      },
+      {
+        "StartAt": "UpdateInventory",
+        "States": {
+          "UpdateInventory": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:...:update-inventory",
+            "End": true
+          }
+        }
+      }
+    ],
+    "End": true
+  }
+}
+```
 
-[Content here]
+## Error Handling
 
-## [Main Section 3]
+### Retry and Catch
 
-[Content here]
+```json
+{
+  "ProcessPayment": {
+    "Type": "Task",
+    "Resource": "arn:aws:lambda:...:process-payment",
+    "Retry": [
+      {
+        "ErrorEquals": ["States.TaskFailed"],
+        "IntervalSeconds": 2,
+        "MaxAttempts": 3,
+        "BackoffRate": 2.0
+      }
+    ],
+    "Catch": [
+      {
+        "ErrorEquals": ["PaymentFailed"],
+        "Next": "HandlePaymentFailure"
+      }
+    ],
+    "Next": "CreateShipment"
+  }
+}
+```
+
+## Best Practices
+
+1. **Keep states simple** - Single responsibility
+2. **Handle errors** - Retry and catch
+3. **Use parallel** - When possible
+4. **Monitor** - CloudWatch metrics
+5. **Test** - State machine testing
+6. **Document** - Clear workflows
+7. **Version** - State machine versions
+8. **Optimize** - Reduce execution time
 
 ## Conclusion
 
-[Summarize key takeaways]
+Step Functions enable:
+- Workflow orchestration
+- Error handling
+- Parallel execution
+- Visual workflows
+
+Start with simple workflows, then add complexity. The patterns shown here orchestrate production serverless workflows.
 
 ---
 
-*Posted on August 15, 2023 | Tags: AWS, Step Functions, Serverless, Orchestration | Category: How-To*
+*AWS Step Functions from August 2023, covering workflow orchestration.*

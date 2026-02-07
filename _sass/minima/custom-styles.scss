@@ -1,2 +1,20 @@
 // Placeholder to allow defining custom styles that override everything else.
 // (Use `_sass/minima/custom-variables.scss` to override variable defaults)
+
+// Home page intro section with Pong game
+.home-intro-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 2rem;
+  margin-bottom: 2rem;
+  
+  @media screen and (max-width: 768px) {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+}
+
+.home-intro-content {
+  flex: 1;
+  min-width: 0; // Allows text to wrap properly
+}

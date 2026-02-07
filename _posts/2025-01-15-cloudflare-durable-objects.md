@@ -12,9 +12,13 @@ excerpt: "Explore Cloudflare Durable Objects, a revolutionary approach to statef
 
 ## Introduction
 
-In 2025, edge computing has evolved beyond static content delivery and stateless functions. Cloudflare Durable Objects represent a paradigm shift: **strongly consistent, stateful computing at the edge**. While traditional edge computing focused on read-heavy workloads close to users, Durable Objects enable write-heavy, real-time applications with guaranteed consistency.
+Edge computing traditionally meant pushing read-heavy workloads closer to users—CDNs caching static assets, serverless functions handling API requests. But what about state? [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/) change the game: **strongly consistent, stateful computing at the edge**.
 
-Building Underscore.is, our AI coding agent platform, required real-time WebSocket communication with state persistence across edge locations. Durable Objects proved to be the perfect solution—a distributed state machine that could handle concurrent connections, coordinate AI agent tasks, and persist workspace data without the complexity of traditional distributed systems.
+Building Underscore.is, our AI coding agent platform, required real-time WebSocket communication with state persistence across edge locations. Traditional approaches—Redis clusters, sticky sessions, centralized databases—all added complexity and latency. Durable Objects solved this: each user workspace became an independent object with its own state, automatically migrated to the nearest edge location.
+
+The key insight: instead of distributing state across a database, make the compute follow the state. One Durable Object instance has authority over its data, guaranteed. No distributed consensus for every write, no eventual consistency surprises.
+
+Read the [Durable Objects announcement](https://blog.cloudflare.com/introducing-workers-durable-objects/) for Cloudflare's vision.
 
 ## What Are Durable Objects?
 
@@ -600,19 +604,29 @@ Compare to running a dedicated WebSocket server!
 
 ## Conclusion
 
-Durable Objects represent a fundamental shift in edge computing—from stateless request/response to stateful, real-time systems. By providing strong consistency guarantees in a globally distributed system, they enable entirely new classes of applications.
+Durable Objects represent a fundamental shift: from stateless edge computing to stateful systems with strong consistency. By making each object the single source of truth for its data and automatically migrating it closer to users, Cloudflare eliminates the complexity of distributed state management.
 
-Key insights:
+The programming model feels like writing a class that runs on a single server—no locks, no distributed transactions, no eventual consistency headaches. But under the hood, Cloudflare handles global distribution, automatic failover, and transparent migration.
 
-- **Design single-tenant** - One object per logical entity
-- **Embrace WebSockets** - Build real-time features naturally
-- **Use transactions** - Leverage ACID guarantees
-- **Combine with R2** - Offload large data
-- **Monitor memory** - Keep state bounded
+**Key principles:**
+- **Design single-tenant** - One object per logical entity (user, room, session)
+- **Embrace WebSockets** - Build real-time features naturally without external pub/sub
+- **Use transactions** - Leverage built-in ACID guarantees for complex state changes
+- **Combine with R2/KV** - Offload large/cold data, keep hot state in Durable Objects
+- **Monitor memory** - Keep state bounded (128MB limit per object)
 
-At Underscore.is, Durable Objects enabled us to build a truly global, real-time coding platform without managing infrastructure. Each user gets their own isolated workspace that persists state, coordinates AI agents, and handles WebSocket connections—all automatically distributed to the nearest edge location.
+At Underscore.is, Durable Objects enabled us to build a truly global, real-time coding platform without managing infrastructure. Each user workspace is a Durable Object that persists state, coordinates AI agents, and handles WebSocket connections—all automatically distributed to the nearest edge location. The operational simplicity is remarkable.
 
-The future of edge computing is stateful.
+The future of edge computing is stateful, and Durable Objects show how to do it right.
+
+**Further Resources:**
+- [Durable Objects Documentation](https://developers.cloudflare.com/durable-objects/) - Comprehensive guides
+- [Durable Objects Announcement](https://blog.cloudflare.com/introducing-workers-durable-objects/) - Original vision
+- [Durable Objects Examples](https://developers.cloudflare.com/durable-objects/examples/) - Code samples
+- [Storage API Reference](https://developers.cloudflare.com/durable-objects/api/transactional-storage-api/) - Transactional storage
+- [WebSocket API](https://developers.cloudflare.com/durable-objects/api/websockets/) - WebSocket support
+- [Hibernatable WebSockets](https://blog.cloudflare.com/hibernatable-websockets-on-workers/) - Cost optimization
+- [Durable Objects Pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) - Cost model
 
 ---
 

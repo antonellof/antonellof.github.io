@@ -1,35 +1,84 @@
 ---
 layout: post
-permalink: /2023/03-opentofu-production-migration
 title: "OpenTofu in Production: Migration from Terraform"
-date: 2023-03-17
+date: 2023-03-15
 categories: [Case Study]
 tags: [OpenTofu, Terraform, IaC, Migration]
-excerpt: "Add a brief 2-3 sentence description of this article."
+excerpt: "Migrate from Terraform to OpenTofu in production: step-by-step guide, compatibility testing, state migration, and lessons learned from real-world migration."
 ---
 
-# OpenTofu in Production: Migration from Terraform
+Migrating from Terraform to OpenTofu requires careful planning. After completing production migrations, here's a practical guide.
 
-## Introduction
+## Migration Steps
 
-[Write introduction here - provide context and explain why this topic matters]
+### 1. Assessment
 
-## [Main Section 1]
+```bash
+# Audit Terraform usage
+find . -name "*.tf" -o -name "*.tfvars" | wc -l
 
-[Content here]
+# Check providers
+grep -r "required_providers" .
+```
 
-## [Main Section 2]
+### 2. Testing
 
-[Content here]
+```bash
+# Test OpenTofu in dev
+tofu init
+tofu plan
+tofu apply
 
-## [Main Section 3]
+# Verify compatibility
+tofu validate
+```
 
-[Content here]
+### 3. State Migration
+
+```bash
+# OpenTofu uses same state format
+# No migration needed, just rename
+mv terraform.tfstate tofu.tfstate
+mv terraform.tfstate.backup tofu.tfstate.backup
+```
+
+### 4. CI/CD Updates
+
+```yaml
+# Update GitHub Actions
+- name: Setup OpenTofu
+  uses: tofu-actions/setup-tofu@v1
+  with:
+    tofu_version: 1.6.0
+
+- name: OpenTofu Init
+  run: tofu init
+
+- name: OpenTofu Plan
+  run: tofu plan
+```
+
+## Best Practices
+
+1. **Test thoroughly** - Verify compatibility
+2. **Update tooling** - CI/CD, scripts
+3. **Document changes** - Migration notes
+4. **Train team** - New commands
+5. **Monitor** - Track usage
+6. **Gradual rollout** - Phased approach
+7. **Rollback plan** - Quick revert
+8. **Stay updated** - New releases
 
 ## Conclusion
 
-[Summarize key takeaways]
+OpenTofu migration enables:
+- Open source license
+- Terraform compatibility
+- Community support
+- Drop-in replacement
+
+Plan carefully, test thoroughly, migrate gradually. The process shown here migrates production infrastructure safely.
 
 ---
 
-*Posted on March 17, 2023 | Tags: OpenTofu, Terraform, IaC, Migration | Category: Case Study*
+*OpenTofu production migration from March 2023, covering step-by-step migration process.*

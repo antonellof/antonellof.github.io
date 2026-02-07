@@ -1,12 +1,10 @@
 ---
 layout: page
-title: About
+title: About Me
 permalink: /about/
 ---
 
-## About Me
-
-I'm Antonello Fratepietro, a cloud engineer and developer passionate about building scalable Cloud and AI infrastructure. I enjoy working with modern technologies to create efficient, production-ready solutions.
+I'm a cloud engineer and developer passionate about building scalable Cloud and AI infrastructure. I enjoy working with modern technologies to create efficient, production-ready solutions.
 
 This blog is where I share my experiences and learnings in software architecture, distributed systems, and engineering leadership.
 
@@ -47,5 +45,5 @@ Feel free to reach out or follow my work:
 - **Website:** [antonello.dev](https://www.antonello.dev)
 - **GitHub:** [@antonellof](https://github.com/antonellof)
 - **Credly:** [My Certifications](https://www.credly.com/users/antonello-fratepietro/badges#credly)
-- **Databricks:** [My Credentials](https://credentials.databricks.com/profile/antonellofratepietro50199/wallet)
+- **Databricks:** [My Credentials](https://credentials.databricks.com/profile/antonellofratepietro/wallet)
 - **X.com:** [☁️ Hack the Cloud](https://x.com/hack_the_cloud)

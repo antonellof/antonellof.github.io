@@ -1,0 +1,283 @@
+<div class="pong-game-container">
+  <canvas id="pong-canvas"></canvas>
+  <div class="pong-controls">
+    <small id="control-text">Read the blog or play a game :)</small>
+  </div>
+</div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('pong-canvas');
+  if (!canvas) return;
+  
+  // Set canvas size (smaller)
+  canvas.width = 240;
+  canvas.height = 160;
+  
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+  
+  // Commodore 64 color palette
+  const c64Colors = {
+    black: '#000000',
+    white: '#FFFFFF',
+    red: '#880000',
+    cyan: '#AAFFEE',
+    purple: '#CC44CC',
+    green: '#00CC55',
+    blue: '#0000AA',
+    yellow: '#EEEE77',
+    orange: '#DD8855',
+    brown: '#664400',
+    lightRed: '#FF7777',
+    darkGrey: '#333333',
+    grey: '#777777',
+    lightGreen: '#AAFF66',
+    lightBlue: '#0088FF',
+    lightGrey: '#BBBBBB'
+  };
+  
+  // Game state
+  const paddleHeight = 32;
+  const paddleWidth = 6;
+  const ballSize = 5;
+  const paddleSpeed = 3;
+  
+  let leftPaddle = { y: height / 2 - paddleHeight / 2, score: 0 };
+  let rightPaddle = { y: height / 2 - paddleHeight / 2, score: 0 };
+  let ball = {
+    x: width / 2,
+    y: height / 2,
+    vx: 2,
+    vy: 1.5
+  };
+  
+  let keys = {};
+  let mouseY = height / 2;
+  let isTouchDevice = false;
+  
+  // Detect touch device
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    isTouchDevice = true;
+    const controlText = document.getElementById('control-text');
+    if (controlText) {
+      controlText.textContent = 'Read the blog or play a game :)';
+    }
+  }
+  
+  // Mouse input handling
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleY = canvas.height / rect.height;
+    mouseY = (e.clientY - rect.top) * scaleY;
+    // Center paddle on mouse position
+    leftPaddle.y = Math.max(0, Math.min(height - paddleHeight, mouseY - paddleHeight / 2));
+  });
+  
+  // Touch input handling for mobile
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    handleTouch(e);
+  });
+  
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    handleTouch(e);
+  });
+  
+  function handleTouch(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleY = canvas.height / rect.height;
+    const touch = e.touches[0];
+    if (touch) {
+      mouseY = (touch.clientY - rect.top) * scaleY;
+      // Center paddle on touch position
+      leftPaddle.y = Math.max(0, Math.min(height - paddleHeight, mouseY - paddleHeight / 2));
+    }
+  }
+  
+  // Keyboard input handling (fallback)
+  document.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+  });
+  
+  document.addEventListener('keyup', (e) => {
+    keys[e.key.toLowerCase()] = false;
+  });
+  
+  // AI for right paddle (simple)
+  function updateRightPaddle() {
+    const paddleCenter = rightPaddle.y + paddleHeight / 2;
+    if (ball.y < paddleCenter - 5) {
+      rightPaddle.y = Math.max(0, rightPaddle.y - paddleSpeed);
+    } else if (ball.y > paddleCenter + 5) {
+      rightPaddle.y = Math.min(height - paddleHeight, rightPaddle.y + paddleSpeed);
+    }
+  }
+  
+  // Update left paddle based on input (keyboard fallback)
+  function updateLeftPaddle() {
+    // Mouse control takes priority, keyboard is fallback
+    if (keys['w'] || keys['arrowup']) {
+      leftPaddle.y = Math.max(0, leftPaddle.y - paddleSpeed);
+    }
+    if (keys['s'] || keys['arrowdown']) {
+      leftPaddle.y = Math.min(height - paddleHeight, leftPaddle.y + paddleSpeed);
+    }
+  }
+  
+  // Ball collision detection
+  function checkCollision() {
+    // Top and bottom walls
+    if (ball.y <= ballSize || ball.y >= height - ballSize) {
+      ball.vy = -ball.vy;
+    }
+    
+    // Left paddle
+    if (ball.x <= paddleWidth + ballSize && 
+        ball.y >= leftPaddle.y && 
+        ball.y <= leftPaddle.y + paddleHeight) {
+      ball.vx = Math.abs(ball.vx);
+      ball.vy += (ball.y - (leftPaddle.y + paddleHeight / 2)) * 0.1;
+    }
+    
+    // Right paddle
+    if (ball.x >= width - paddleWidth - ballSize && 
+        ball.y >= rightPaddle.y && 
+        ball.y <= rightPaddle.y + paddleHeight) {
+      ball.vx = -Math.abs(ball.vx);
+      ball.vy += (ball.y - (rightPaddle.y + paddleHeight / 2)) * 0.1;
+    }
+    
+    // Score
+    if (ball.x < 0) {
+      rightPaddle.score++;
+      resetBall();
+    }
+    if (ball.x > width) {
+      leftPaddle.score++;
+      resetBall();
+    }
+  }
+  
+  function resetBall() {
+    ball.x = width / 2;
+    ball.y = height / 2;
+    ball.vx = (Math.random() > 0.5 ? 1 : -1) * 2;
+    ball.vy = (Math.random() - 0.5) * 3;
+  }
+  
+  // Drawing functions
+  function drawRect(x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  }
+  
+  function drawCircle(x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  function draw() {
+    // Clear canvas with C64 dark blue background
+    ctx.fillStyle = c64Colors.blue;
+    ctx.fillRect(0, 0, width, height);
+    
+    // Draw center line in C64 light grey
+    ctx.strokeStyle = c64Colors.lightGrey;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(width / 2, 0);
+    ctx.lineTo(width / 2, height);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Draw paddles in C64 white
+    drawRect(0, leftPaddle.y, paddleWidth, paddleHeight, c64Colors.white);
+    drawRect(width - paddleWidth, rightPaddle.y, paddleWidth, paddleHeight, c64Colors.white);
+    
+    // Draw ball in C64 yellow
+    drawCircle(ball.x, ball.y, ballSize, c64Colors.yellow);
+    
+    // Draw scores in C64 cyan
+    ctx.fillStyle = c64Colors.cyan;
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(leftPaddle.score, width / 4, 24);
+    ctx.fillText(rightPaddle.score, 3 * width / 4, 24);
+  }
+  
+  // Game loop
+  function gameLoop() {
+    updateLeftPaddle();
+    updateRightPaddle();
+    
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+    
+    checkCollision();
+    draw();
+    
+    requestAnimationFrame(gameLoop);
+  }
+  
+  
+  // Start the game
+  draw();
+  gameLoop();
+})();
+</script>
+
+<style>
+.pong-game-container {
+  flex-shrink: 0;
+  margin-left: 2rem;
+  text-align: center;
+}
+
+.pong-game-container canvas {
+  width: 240px;
+  height: 160px;
+  border: 2px solid #e8e8e8;
+  border-radius: 4px;
+  display: block;
+  background: #0000AA;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  touch-action: none; /* Prevent default touch behaviors like scrolling */
+  user-select: none; /* Prevent text selection on touch */
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+}
+
+@media (prefers-color-scheme: dark) {
+  .pong-game-container canvas {
+    border-color: #444;
+  }
+}
+
+.pong-controls {
+  margin-top: 0.5rem;
+  color: #666;
+  font-size: 0.75rem;
+}
+
+@media screen and (max-width: 768px) {
+  .pong-game-container {
+    margin-left: 0;
+    margin-top: 2rem;
+    width: 100%;
+  }
+  
+  .pong-game-container canvas {
+    width: 100%;
+    max-width: 240px;
+    margin: 0 auto;
+  }
+}
+</style>

@@ -5,12 +5,38 @@ description: >-
   Cloud engineer and developer passionate about building scalable Cloud and AI infrastructure.
   Writings on software architecture, distributed systems, and engineering leadership.
 baseurl: "" # the subpath of your site, e.g. /blog
-url: "https://www.antonello.dev" # the base hostname & protocol for your site
+url: "https://www.fratepietro.com" # the base hostname & protocol for your site
 
 # Author information
 author:
   name: Antonello Fratepietro
   email: antonello.f at gmail dot com
+
+# SEO settings
+lang: en_US
+timezone: Europe/Rome
+
+# Social profiles for SEO
+twitter:
+  username: hack_the_cloud
+  card: summary_large_image
+
+social:
+  name: Antonello Fratepietro
+  links:
+    - https://github.com/antonellof
+    - https://x.com/hack_the_cloud
+    - https://www.fratepietro.com
+
+# Google Analytics
+google_analytics: G-391KR8TPR1
+
+# Google Search Console verification (add your verification code when ready)
+# google_site_verification: "your-verification-code-here"
+
+# Default SEO image for social sharing
+logo: /assets/images/logo.png
+# social_image: /assets/images/social-card.png
 
 # Build settings
 markdown: kramdown
@@ -18,6 +44,7 @@ theme: minima
 plugins:
   - jekyll-feed
   - jekyll-seo-tag
+  - jekyll-sitemap
 
 # Minima settings
 minima:
@@ -44,7 +71,7 @@ minima:
       url: "https://x.com/hack_the_cloud"
     - title: Website
       icon: globe
-      url: "https://www.antonello.dev"
+      url: "https://www.fratepietro.com"
 
 # Exclude from processing
 exclude:

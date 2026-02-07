@@ -1,35 +1,97 @@
 ---
 layout: post
-permalink: /2022/10-building-documentation-systems
 title: "Building Documentation Systems: From Zero to Hero"
-date: 2022-10-30
+date: 2022-10-15
 categories: [How-To]
-tags: [Documentation, Best Practices, Team]
-excerpt: "Add a brief 2-3 sentence description of this article."
+tags: [Documentation, Best Practices, Tools]
+excerpt: "Build comprehensive documentation systems: API docs, architecture docs, runbooks, and developer guides. Learn tools, processes, and best practices for maintainable documentation."
 ---
 
-# Building Documentation Systems: From Zero to Hero
+Documentation is critical for team productivity. After building documentation systems, here's how to create effective documentation.
 
-## Introduction
+## Documentation Types
 
-[Write introduction here - provide context and explain why this topic matters]
+### API Documentation
 
-## [Main Section 1]
+```markdown
+# User API
 
-[Content here]
+## Get User
 
-## [Main Section 2]
+GET /api/users/:id
 
-[Content here]
+### Parameters
+- `id` (string, required) - User ID
 
-## [Main Section 3]
+### Response
+```json
+{
+  "id": "123",
+  "name": "John Doe",
+  "email": "john@example.com"
+}
+```
 
-[Content here]
+### Example
+\`\`\`bash
+curl https://api.example.com/users/123
+\`\`\`
+```
+
+### Architecture Documentation
+
+```markdown
+# System Architecture
+
+## Overview
+High-level system description
+
+## Components
+- API Gateway
+- User Service
+- Order Service
+
+## Data Flow
+User → API Gateway → Services → Database
+```
+
+## Tools
+
+### Documentation Generators
+
+- **Swagger/OpenAPI** - API documentation
+- **JSDoc** - Code documentation
+- **Sphinx** - Python documentation
+- **Docusaurus** - Documentation sites
+
+### Documentation Platforms
+
+- **Confluence** - Team wiki
+- **Notion** - Collaborative docs
+- **GitBook** - Technical docs
+- **MkDocs** - Markdown docs
+
+## Best Practices
+
+1. **Write as you go** - Don't defer
+2. **Keep updated** - Regular reviews
+3. **Use examples** - Code samples
+4. **Structure clearly** - Logical organization
+5. **Searchable** - Good navigation
+6. **Version control** - Track changes
+7. **Review process** - Peer review
+8. **Accessible** - Easy to find
 
 ## Conclusion
 
-[Summarize key takeaways]
+Documentation systems enable:
+- Knowledge sharing
+- Onboarding
+- Maintenance
+- Team productivity
+
+Start with basics, then expand. The practices shown here create maintainable documentation.
 
 ---
 
-*Posted on October 30, 2022 | Tags: Documentation, Best Practices, Team | Category: How-To*
+*Building documentation systems from October 2022, covering tools and best practices.*

@@ -7,7 +7,21 @@ layout: base
     <h1 class="page-heading">{{ page.title }}</h1>
   {%- endif -%}
 
-  {{ content }}
+  {%- assign content_parts = content | split: '<hr />' -%}
+  {%- assign intro_content = content_parts[0] -%}
+  {%- assign posts_heading = content_parts[1] -%}
+  
+  <div class="home-intro-wrapper">
+    <div class="home-intro-content">
+      {{ intro_content }}
+    </div>
+    {%- include pong-game.html -%}
+  </div>
+  
+  {%- if posts_heading -%}
+    <hr />
+    {{ posts_heading }}
+  {%- endif -%}
 
 
   {% if site.paginate %}
