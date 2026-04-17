@@ -14,7 +14,7 @@ The useful memory is 600 ms old, from a different modality than the query, and l
 
 The interesting observation is that an embodied perception stack already knows more than "find me the nearest vector" at query time. It carries an active **track id**, a **dialogue session**, an **AR room**, or a **robot sub-task** — the right answer almost always lives inside that *episode*. The whole content of [MARS](https://github.com/antonellof/MARS) is what happens when you take that observation seriously and push it into a GPU kernel.
 
-**[Read the full paper (PDF, 1.97 MB)](https://www.fratepietro.com/papers/MARS/main.pdf)** — last rebuilt 2026-04-17 (v2 revision, typography pass applied).
+**[Read the full paper (PDF, 1.97 MB)](https://www.fratepietro.com/papers/MARS/main.pdf)** — last rebuilt 2026-04-17 (v2 revision, typography + reviewer-pass applied).
 
 > **Update — 2026-04-17 (v2 paper revision).** The whole framing of
 > the paper has shifted. The headline contribution is now
@@ -52,6 +52,54 @@ The interesting observation is that an embodied perception stack already knows m
 > margin, the hardware-index table fits cleanly, and all 24 of the
 > `Overfull \hbox` warnings the original v2 build emitted are gone.
 > Same content, just readable.
+>
+> **Reviewer-pass (also 2026-04-17):** a Tier-1 batch of textual
+> corrections from a self-administered arXiv-style review went in
+> on top of the typography pass. None of them change the
+> experimental claims; all of them tighten what the paper actually
+> says:
+>
+> - **`atomicCAS` semantics in Algorithm 1 made unambiguous.** The
+>   BFS expansion now reads `prev ← atomicCAS(visited[u], 0, 1)` /
+>   `if prev = 0 then …`, with a paragraph pinning the standard
+>   CUDA "returns previous value, swap iff prev == cmp" contract.
+>   The previous boolean shorthand could be read either way.
+> - **`33×` is now consistent.** A single `34×` in §7.13's
+>   head-to-head finding (1) was rounded against the rest of the
+>   paper; it now matches the `33×` headline that appears in the
+>   abstract, the introduction, the results section and the
+>   conclusion.
+> - **NSN naming honesty.** The "Neural" in *Neural Shortcut
+>   Network* is retained for continuity with prior MARS releases,
+>   but §5 now opens with an explicit note that the construction is
+>   a **deterministic** Watts–Strogatz small-world graph plus
+>   deterministic cross-modal bridges — no learned weights, no
+>   gradient-tuned objectives, no learned edge selection. The
+>   "Neural" refers only to its role as a neural-embedding index.
+> - **Bibliography placeholders resolved.** The four embodied-memory
+>   neighbours (RT-Cache, RoboMemory, MEM, EgoMem) now carry their
+>   real arXiv author lists instead of "Anonymous authors —
+>   citation pending verification."
+> - **Episode-Scope Crossover proposition reframed in time units.**
+>   The proposition now writes both paths as
+>   `T ≈ 4·n·D / B_eff + T_topK + T_BFS`, so latency in seconds is
+>   compared to latency in seconds rather than work units to a
+>   subtracted-out latency mix.
+> - **`60–75% of peak HBM` claim softened.** It is now flagged as
+>   a spot-check on the A100 SXM4 80 GB row at N=10⁶ via Nsight
+>   Systems, with a full per-stage Nsight Compute breakdown
+>   explicitly queued in the Evaluation Hardening track (§10.1).
+> - **"Sustained Long-Duration Benchmarks" → "Sustained 30-Second
+>   Benchmarks."** The previous heading promised more than the
+>   experiment delivered (max duration was 30 s); longer runs that
+>   would catch slow-onset thermal drift are documented as queued
+>   work rather than implied as already done.
+> - **"Pareto-dominant" → "Pareto-optimal"** in §7.13 finding (1),
+>   matching the rest of the paper.
+> - **"Miss rate" in the streaming-insertion table** is now labeled
+>   "Visibility miss" with an explicit note that it is *distinct
+>   from* the deadline-miss rate reported for the AV / robot /
+>   AR-VR / voice demonstrators.
 
 ## What existing libraries do well — and where they stop
 
