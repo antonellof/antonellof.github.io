@@ -2,10 +2,21 @@
 layout: post
 title: "s0-cli: A Self-Optimizing Security Scanner via Meta-Harness"
 date: 2026-04-19
+last_modified_at: 2026-04-20
 categories: [Security]
-tags: [LLM Agents, Static Analysis, SAST, Meta-Harness, AI Security, Optimization]
-excerpt: "Most security tools encode their heuristics in scattered config files or undocumented engineer intuition. s0-cli encodes them in a versioned single-file Python agent that gets automatically rewritten by an outer optimization loop, scored against a labeled benchmark with a held-out test split. On openai/gpt-4o-mini the LLM triage layer cuts false positives by 30% on held-out tasks (10 → 7) without dropping a single true positive — held-out F1 climbs from 0.50 to 0.59 while keeping recall at 1.00."
+tags: [LLM Agents, Static Analysis, SAST, Meta-Harness, AI Security, Optimization, Supply Chain, MCP]
+excerpt: "Most security tools encode their heuristics in scattered config files or undocumented engineer intuition. s0-cli encodes them in a versioned single-file Python agent that gets automatically rewritten by an outer optimization loop, scored against a labeled benchmark with a held-out test split. On openai/gpt-4o-mini the LLM triage layer cuts false positives by 30% on held-out tasks (10 → 7) without dropping a single true positive — held-out F1 climbs from 0.50 to 0.59 while keeping recall at 1.00. v0.3.x adds a novelty-hunting harness for unknown vuln classes, a supply-chain composite scanner, MCP integration for Claude/Cursor, and standalone binaries."
 ---
+
+> **Update — 2026-04-20 (v0.3.1).** Since this post first went up:
+> - **`vulnhunter_v0` harness** — LLM-driven agent that hunts the eight bug classes pattern matchers can't see (SSRF, IDOR, indirect RCE, auth/session bypass, race conditions, mass assignment, subtle crypto, path traversal). No scanner seeds; pure novelty detection. Found all 3 seeded novel vulns in a Flask test app with concrete attack payloads + fix hints.
+> - **`supply_chain` composite scanner** — OSV-Scanner (CVEs across all OSS lockfiles) + OpenSSF Scorecard (repo trust signals) + guarddog (malicious-package heuristics for PyPI/npm) in one rule. Found **37 real CVEs** on a vulnerable test target.
+> - **Standalone binaries** for macOS (arm64/x86_64), Linux (x86_64/arm64), Windows. One-liner install via `curl … | bash` — no Python required.
+> - **MCP server** (`s0-mcp`) + Claude Code skill + Cursor rule, so the AI assistants you already use can call `s0` directly.
+> - **8 LLM providers** (added OpenRouter / Ollama local+cloud / self-hosted OpenAI-compatible / Groq / Mistral / DeepSeek / Azure) and **7 output formats** (added Rich terminal default / CSV / GitLab Code Quality / JUnit XML).
+> - **Real-world run on OWASP PyGoat**: 252 raw scanner findings → 14 LLM-triaged real bugs ([94% noise reduction, results doc](https://github.com/antonellof/s0-cli/blob/main/docs/results/REAL_WORLD_RESULTS.md)).
+>
+> The narrative below is unchanged — the Meta-Harness approach is the point — but the "Try it" section at the end and the architecture/install snippets are updated to match the current state. Updates marked **\[v0.3\]** inline.
 
 Static security scanners give you a wall of JSON. Semgrep finds a `subprocess.run(..., shell=True)`; bandit flags an `md5` call; gitleaks shouts about a token-shaped string in a test fixture. You — the engineer — read every alert, decide which are real, trace data flow by hand, and then close the ones that don't matter. The scanner doesn't help with any of that. It can't, because it doesn't read source.
 
@@ -31,19 +42,21 @@ $ uv run s0 scan ./my-app
 
 ## The hybrid: classic scanners + LLM triage
 
-The architecture isn't novel — `s0 scan` runs five classic scanners (`semgrep`, `bandit`, `ruff`, `gitleaks`, `trivy`) plus two AI-slop detectors (`hallucinated_import` AST-based, `vibe` LLM-based) on the target in parallel, deduplicates by `(path, line, rule_id)`, and hands the merged list to a multi-turn LLM agent with a tightly scoped tool surface (read source, grep for taint, blame git history, re-run scanners with tighter rules). For each finding the agent either accepts it (assigning a severity and a `fix_hint`) or marks it as a false positive.
+The architecture isn't novel — `s0 scan` runs five classic scanners (`semgrep`, `bandit`, `ruff`, `gitleaks`, `trivy`) plus two AI-slop detectors (`hallucinated_import` AST-based, `vibe` LLM-based) **\[v0.3: + a `supply_chain` composite scanner that wraps OSV-Scanner + OpenSSF Scorecard + guarddog\]** on the target in parallel, deduplicates by `(path, line, rule_id)`, and hands the merged list to a multi-turn LLM agent with a tightly scoped tool surface (read source, grep for taint, blame git history, re-run scanners with tighter rules). For each finding the agent either accepts it (assigning a severity and a `fix_hint`) or marks it as a false positive.
 
 The scanners do detection; the LLM does triage. That split matters because of how the numbers come out, which I'll get to in a moment.
 
 | | Traditional SAST | s0-cli |
 | - | - | - |
-| Detection | one scanner | 5 classic scanners + 2 AI-slop detectors, deduped |
+| Detection | one scanner | 5 classic + 1 supply-chain composite + 2 AI-slop detectors, deduped |
 | Triage | manual (engineer reads each alert) | LLM agent reads source, traces taint, marks FPs |
-| Output | rule_id + line | severity + `why_real` + `fix_hint`, in markdown / JSON / SARIF |
+| Output | rule_id + line | severity + `why_real` + `fix_hint`, in 7 formats (markdown / JSON / SARIF / Rich terminal / CSV / GitLab CodeQuality / JUnit XML) |
 | Audit trail | none | full prompt + every tool call recorded under `runs/` |
 | Reproducibility | re-run and hope | replay any past scan from `runs/<id>/` |
 
 Everything the agent does — every prompt, every tool call, every LLM response — is recorded under `runs/<timestamp>__<harness>__<id>/`. That recording is not just for debugging; it's also the input to the optimization loop.
+
+> **\[v0.3 — two harnesses, two jobs\]** The default agent (`baseline_v0_agentic`) does the **triage** job described above: scanner seeds in, calibrated findings out. A second agent (`vulnhunter_v0`) does **novelty detection** instead: no scanner seeds, just an LLM with the same tool surface and a system prompt that targets the eight classes pattern matchers structurally can't see (SSRF, IDOR, indirect RCE, auth bypass, race conditions, mass assignment, crypto mistakes, path traversal). The two agents share findings via the same `(path, line, rule_id)` fingerprint, so you can run both — `s0 scan ./repo && s0 scan ./repo --harness vulnhunter_v0` — and downstream tools dedup automatically. Calibration of known classes is one problem; finding unknown ones is a different one, with a different optimal harness.
 
 ## Benchmark: 11 labeled tasks, train/test split
 
@@ -145,11 +158,26 @@ This is the part of the loop that feels most like classical optimization: you're
 I don't want to oversell the size of what's been measured here. A few caveats worth keeping in mind if you're considering using this in production or running the loop yourself:
 
 - **11 tasks is small.** The +0.09 test-F1 delta from `--no-llm` to `baseline_v0_agentic` is one model on one bench. The bench needs to grow before any of these absolute numbers should be quoted as evidence about real CI cost vs accuracy tradeoffs. Adding tasks is documented in [`bench/README.md`](https://github.com/antonellof/s0-cli/blob/main/bench/README.md) and is the most useful contribution someone could make right now.
-- **Recall = 1.00 is partly a property of the bench.** Every ground-truth label in the train and test set is something one of the five classic scanners catches, by construction. A bench item like "side-channel timing leak in a custom JWT verifier" would not be caught by any current scanner, and the LLM-only `vibe` detector would have to find it from scratch. Adding tasks that *only* the vibe detector catches is the next thing that needs to happen to stress the LLM-as-detector path rather than the LLM-as-triage path.
+- **Recall = 1.00 is partly a property of the bench.** Every ground-truth label in the train and test set is something one of the five classic scanners catches, by construction. A bench item like "side-channel timing leak in a custom JWT verifier" would not be caught by any current scanner, and the LLM-only `vibe` detector would have to find it from scratch. Adding tasks that *only* the vibe detector catches is the next thing that needs to happen to stress the LLM-as-detector path rather than the LLM-as-triage path. **\[v0.3 update\]** The `vulnhunter_v0` harness is the first concrete attempt at this — it found all 3 seeded SSRF / IDOR / RCE-via-indirection bugs in a custom Flask test app *without* any scanner seeds, but those numbers aren't yet in the train/test bench above. Adding novelty-class tasks to `tasks_test/` is the obvious next benchmark contribution.
 - **`gpt-4o-mini` is the cheap baseline.** The numbers above are for the model that maximizes "interesting per dollar." `claude-sonnet-4-5` is the default in `.env.example` and likely produces sharper triage; I haven't run the full optimize loop on it because each iteration is non-trivially expensive and I want the bench to grow first.
 - **The optimize loop is a research artifact, not a CI tool.** `s0 scan` is the production path; `s0 optimize` is what produces *better* `s0 scan` configurations. Running optimize on every PR would be cost-prohibitive and beside the point.
 
 ## Try it
+
+**Install (no Python required, v0.3.1+):**
+
+```bash
+# Standalone binary — autodetects OS/arch, verifies SHA-256, installs to /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/antonellof/s0-cli/main/install.sh | bash
+
+# Or pin a version + install into ~/.local without sudo
+curl -fsSL https://raw.githubusercontent.com/antonellof/s0-cli/main/install.sh \
+  | bash -s -- --version v0.3.1 --prefix "$HOME/.local"
+```
+
+The bundle ships every LLM provider plugin (Anthropic / OpenAI / Gemini / OpenRouter / Ollama / Groq / Mistral / DeepSeek / Azure) and every harness; you only install the SAST scanners you want. `s0 doctor` reports which are present.
+
+**Or from source (recommended for development):**
 
 ```bash
 git clone https://github.com/antonellof/s0-cli.git
@@ -157,28 +185,47 @@ cd s0-cli
 uv sync                    # Python 3.12+, uv >= 0.5
 
 cp .env.example .env       # then fill in one provider key
-
-# Smoke test: scan this very repo
-uv run s0 scan . --no-llm --format markdown
-
-# Score the default harness on the training bench
-uv run s0 eval
-
-# Score on the held-out test set
-uv run s0 eval --split test
-
-# Run the optimize loop (5 iterations, then a held-out pass)
-uv run s0 optimize -n 5 --run-name exp1 --fresh
 ```
 
-Three drop-in CI integrations ship with the repo (a [GitHub Action](https://github.com/antonellof/s0-cli/blob/main/action.yml), a [multi-arch Docker image](https://github.com/antonellof/s0-cli/blob/main/Dockerfile) with every scanner pre-installed, and a [pre-commit hook pair](https://github.com/antonellof/s0-cli/blob/main/.pre-commit-hooks.yaml)). Output formats include `markdown` (default), `json`, and `sarif` for GitHub code-scanning / GitLab SAST.
+**Use it:**
+
+```bash
+# Default agent — triage classic + AI-slop scanner findings
+s0 scan ./your/repo
+
+# v0.3: hunt UNKNOWN vulnerability classes (SSRF, IDOR, indirect RCE, ...)
+# — LLM-driven, no scanner seeds
+s0 scan ./your/repo --harness vulnhunter_v0
+
+# v0.3: just the supply-chain layer (CVEs + repo trust + malicious-pkg heuristics)
+s0 scan ./your/repo --no-llm --scanner supply_chain
+
+# Score the default harness on the training bench
+s0 eval
+
+# Score on the held-out test set
+s0 eval --split test
+
+# Run the optimize loop (5 iterations, then a held-out pass)
+s0 optimize -n 5 --run-name exp1 --fresh
+```
+
+**Combine the agents for full coverage:** `s0 scan ./repo && s0 scan ./repo --harness vulnhunter_v0`. The first calibrates known-class findings; the second hunts what pattern matchers can't see. Findings from both runs share the same fingerprint, so SARIF / GitLab CodeQuality / JUnit reports dedup automatically downstream.
+
+**Real-world numbers — OWASP PyGoat \[v0.3\]:** running the default agent on the [PyGoat](https://github.com/adeyosemanputra/pygoat) intentionally-vulnerable Django app reduced **252 raw scanner findings to 14 LLM-triaged real bugs** — a 94% noise reduction without dropping a single ground-truth vuln. Full session including the Pareto frontier after one `s0 optimize` iteration is reproducible from [`docs/results/REAL_WORLD_RESULTS.md`](https://github.com/antonellof/s0-cli/blob/main/docs/results/REAL_WORLD_RESULTS.md).
+
+**Drop-in CI integrations ship with the repo:** a [GitHub Action](https://github.com/antonellof/s0-cli/blob/main/action.yml), a [multi-arch Docker image](https://github.com/antonellof/s0-cli/blob/main/Dockerfile) with every scanner pre-installed, and a [pre-commit hook pair](https://github.com/antonellof/s0-cli/blob/main/.pre-commit-hooks.yaml). Seven output formats: `terminal` (Rich-based, default in TTY), `markdown`, `json`, `sarif` (GitHub code-scanning / GitLab SAST), `csv`, `gitlab` (Code Quality JSON for MR widgets), `junit` (XML for any CI test reporter).
+
+**\[v0.3\] Use it from your AI assistant.** A built-in MCP server (`s0-mcp`) plus a [Claude Code skill](https://github.com/antonellof/s0-cli/blob/main/.claude/skills/s0-cli/SKILL.md) and a [Cursor rule](https://github.com/antonellof/s0-cli/blob/main/.cursor/rules/s0-cli.mdc) let Claude Code, Cursor, or any MCP-aware client invoke `s0 scan` / `s0 scan --diff` / `s0 list_scanners` / `s0 list_harnesses` directly. Install guide: [`docs/integrations/INSTALL.md`](https://github.com/antonellof/s0-cli/blob/main/docs/integrations/INSTALL.md).
 
 I'm particularly interested in feedback from anyone running an LLM-augmented SAST in CI today. The hypothesis I'm trying to falsify — that *the agent itself should be the optimization variable, not the prompt* — needs validation from people who've actually paid the LLM bills on real PR traffic. The 11-task bench is a starting point, not an answer.
 
 **Links:**
-- [GitHub repository](https://github.com/antonellof/s0-cli)
+- [GitHub repository](https://github.com/antonellof/s0-cli) · [latest release](https://github.com/antonellof/s0-cli/releases/latest)
 - [README](https://github.com/antonellof/s0-cli/blob/main/README.md) — top-level overview, quickstart, CI integrations
 - [`SKILL.md`](https://github.com/antonellof/s0-cli/blob/main/SKILL.md) — proposer contract read by the outer loop
 - [`bench/README.md`](https://github.com/antonellof/s0-cli/blob/main/bench/README.md) — task layout and how to add new ones
+- [`docs/results/REAL_WORLD_RESULTS.md`](https://github.com/antonellof/s0-cli/blob/main/docs/results/REAL_WORLD_RESULTS.md) — PyGoat case study, 94% noise reduction
+- [`docs/integrations/INSTALL.md`](https://github.com/antonellof/s0-cli/blob/main/docs/integrations/INSTALL.md) — Claude Code / Cursor / generic MCP integration guide
 - Lee et al. **Meta-Harness: End-to-End Optimization of Model Harnesses.** arXiv:2603.28052 (2026). [paper](https://arxiv.org/abs/2603.28052) · [code](https://github.com/stanford-iris-lab/meta-harness)
 - KRAFTON AI & Ludo Robotics. **Terminus-KIRA.** [github.com/krafton-ai/KIRA](https://github.com/krafton-ai/KIRA)
