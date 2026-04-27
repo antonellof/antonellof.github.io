@@ -5,3 +5,28 @@
 @import
   "minima/skins/{{ site.minima.skin | default: 'classic' }}",
   "minima/initialize";
+
+// Wide tables (e.g. competitor benchmarks in MARS post) blow past the
+// content column on mobile. Wrap them in a horizontally scrollable
+// container while keeping native table semantics intact.
+.post-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: nowrap;
+}
+
+// Match the post column for the typography-pass <details> blocks used
+// in changelog-style sections, so they don't visually float.
+.post-content details {
+  margin: 1em 0;
+  padding: 0.6em 0.9em;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 4px;
+}
+
+.post-content details > summary {
+  cursor: pointer;
+  font-weight: 500;
+}

@@ -35,7 +35,7 @@ google_analytics: G-391KR8TPR1
 # google_site_verification: "your-verification-code-here"
 
 # Default SEO image for social sharing
-logo: /assets/images/logo.png
+# logo: /assets/images/logo.png       # asset not present; re-enable once committed
 # social_image: /assets/images/social-card.png
 
 # Build settings
@@ -57,9 +57,10 @@ minima:
   date_format: "%b %-d, %Y"
   
   # Navigation pages
+  # `index.md` is the site root and is already linked by the site title in
+  # the header, so listing it again creates a redundant "Home" entry.
   nav_pages:
     - about.md
-    - index.md
   
   # Social links
   social_links:

@@ -34,6 +34,8 @@ This blog is where I share my experiences and learnings in software architecture
 
 ## Notable Projects
 
+- **[MARS](https://github.com/antonellof/MARS)** - GPU-resident multimodal memory substrate for real-time embodied AI. Episode-scoped retrieval as a CUDA kernel-level primitive: 197 µs p99 at N=1M with perfect cross-modal `hit@15`, 33× faster than FAISS-Flat-GPU on the same hardware. Companion paper: *[MARS: Episode-Scoped GPU Retrieval for Real-Time Embodied AI](https://www.fratepietro.com/papers/MARS/main.pdf)*.
+
 - **[VittoriaDB](https://github.com/antonellof/VittoriaDB)** - Zero-configuration embedded vector database with HNSW indexing, ACID storage, and REST API. Single Go binary for local AI development.
 
 - **[DistX](https://github.com/antonellof/DistX)** [![Crates.io](https://img.shields.io/crates/v/distx.svg)](https://crates.io/crates/distx) - High-performance vector database written in Rust. Features HNSW indexing with SIMD optimizations, Qdrant-compatible REST API, and gRPC support.
