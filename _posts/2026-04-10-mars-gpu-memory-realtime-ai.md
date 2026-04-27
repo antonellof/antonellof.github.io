@@ -4,14 +4,14 @@ title: "MARS: Episode-Scoped GPU Retrieval for Real-Time Embodied AI"
 date: 2026-04-10
 categories: [Systems]
 tags: [CUDA, GPU, Real-Time Systems, Autonomous Vehicles, Robotics, Memory, Vector Search]
-excerpt: "A child's ball rolls into the road. Vision sees only the ball — but 600 ms ago, microphones captured children's voices from that direction. MARS treats scope, time, and cross-modal connectivity as kernel-level primitives and delivers a perfect-recall multimodal answer in 197 µs at N=1M, 33× faster than FAISS-Flat-GPU on the same hardware — when the application can supply an episode handle."
+excerpt: "A child's ball rolls into the road. Vision sees only the ball — but 600 ms ago, microphones captured children's voices from that direction. MARS (Memory for Autonomous Real-time Systems) treats scope, time, and cross-modal connectivity as kernel-level primitives and delivers a perfect-recall multimodal answer in 197 µs at N=1M, 33× faster than FAISS-Flat-GPU on the same hardware — when the application can supply an episode handle."
 ---
 
 A child's ball rolls into the road from behind a parked van. The vehicle's camera sees only the ball. But 600 ms earlier, the microphones captured children's voices from that same direction — a memory that, if retrievable now, raises the prior that a child may follow the ball into the street.
 
 The useful memory is 600 ms old, from a different modality than the query, and low in cosine similarity compared to countless irrelevant alternatives. No ranking by similarity alone can surface it.
 
-The interesting observation is that an embodied perception stack already knows more than "find me the nearest vector" at query time. It carries an active **track id**, a **dialogue session**, an **AR room**, or a **robot sub-task** — the right answer almost always lives inside that *episode*. The whole content of [MARS](https://github.com/antonellof/MARS) is what happens when you take that observation seriously and push it into a GPU kernel.
+The interesting observation is that an embodied perception stack already knows more than "find me the nearest vector" at query time. It carries an active **track id**, a **dialogue session**, an **AR room**, or a **robot sub-task** — the right answer almost always lives inside that *episode*. The whole content of [MARS](https://github.com/antonellof/MARS) — *Memory for Autonomous Real-time Systems* — is what happens when you take that observation seriously and push it into a GPU kernel.
 
 **[Read the full paper (PDF, 1.97 MB)](https://www.fratepietro.com/papers/MARS/main.pdf)**
 
