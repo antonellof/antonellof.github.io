@@ -4,26 +4,33 @@ title: "Cognitora: A Datacenter-Scale, Open-Source LLM Inference Orchestrator (N
 date: 2026-05-03
 categories: [Systems]
 tags: [LLM Inference, vLLM, SGLang, TensorRT-LLM, NVIDIA Dynamo, KV Cache, Disaggregated Inference, Rust, Kubernetes, GPU Orchestration]
-excerpt: "Inference engines like vLLM, SGLang, and TensorRT-LLM are excellent at saturating one node. They are not, by themselves, a multi-node serving system. Cognitora is a single-binary, Rust-only orchestration layer that turns those engines into a KV-aware, disaggregated, energy-conscious cluster — without a Python control plane or a Kubernetes-only runtime. This post walks through the architecture, the routing model, and how it stacks up against NVIDIA Dynamo, Ray Serve, KServe, Triton, and the vLLM Production Stack."
+excerpt: "Inference engines like vLLM, SGLang, and TensorRT-LLM are excellent at saturating one node. They are not, by themselves, a multi-node serving system. Cognitora is a Rust-only orchestration layer shipped as six static binaries—no Python control plane, no Kubernetes-only runtime—that turns those engines into a KV-aware, disaggregated, energy-conscious cluster. This post walks through the architecture, the routing model, and how it stacks up against NVIDIA Dynamo, Ray Serve, KServe, Triton, and the vLLM Production Stack (updated for the v0.3.0 release)."
 ---
 
 If you have spent any time pushing an LLM into production, the shape of the problem is familiar. A single H100 with [vLLM](https://github.com/vllm-project/vllm) serves Llama 3 8B at impressive throughput. A single node with [SGLang](https://github.com/sgl-project/sglang) handles structured generation beautifully. [TensorRT-LLM](https://github.com/NVIDIA/TensorRT-LLM) wrings every last token-per-second out of an NVL72. None of those are a *cluster*. The moment the workload outgrows one box — or the moment the prefill phase wants different hardware than the decode phase, or the moment a hot prefix shows up on the wrong replica — you are back to writing a routing layer, a KV-cache layer, and a deployment layer yourself.
 
 The two reference points the rest of the industry agrees on are [**NVIDIA Dynamo**](https://github.com/ai-dynamo/dynamo) (Rust core, Python frontend, Kubernetes-first) and a long tail of generic ML serving stacks: [**Ray Serve**](https://docs.ray.io/en/latest/serve/), [**KServe**](https://kserve.github.io/website/), [**NVIDIA Triton Inference Server**](https://github.com/triton-inference-server/server), [**BentoML**](https://github.com/bentoml/BentoML), and the [**vLLM Production Stack**](https://github.com/vllm-project/production-stack). Each makes a different tradeoff between "specialized for LLM inference" and "general purpose," between "one click on a managed cloud" and "I can run it on bare metal in a datacenter I own."
 
-[**Cognitora**](https://github.com/antonellof/cognitora-inference) is an open-source LLM inference orchestration layer that lands in a deliberately specific spot in that design space: **bare-metal-first, Rust-only, engine-agnostic, KV-cache-aware**. It does not replace vLLM or SGLang — it coordinates them into a cluster. It is distributed as six statically-linked binaries with no Python control plane, no JVM operator, and no hard Kubernetes dependency. The same artifacts run as systemd units on a rack of servers, as a Helm chart on Kubernetes, or as Terraform-provisioned VMs across AWS, GCP, Azure, and Hetzner.
+[**Cognitora**](https://github.com/antonellof/cognitora-inference) is an open-source LLM inference orchestration layer that lands in a deliberately specific spot in that design space: **bare-metal-first, Rust-only, engine-agnostic, KV-cache-aware**. It does not replace vLLM or SGLang — it coordinates them into a cluster. It is distributed as six statically-linked binaries with no Python control plane, no JVM operator, and no hard Kubernetes dependency. The same artifacts run as systemd units on a rack of servers, as recipes or `docker compose` on a single host, via a Helm chart on Kubernetes, or as Terraform-provisioned VMs across AWS, GCP, Azure, and Hetzner.
+
+As of **[v0.3.0](https://github.com/antonellof/cognitora-inference/releases/tag/v0.3.0)** (May 2026), the OpenAI-compatible surface includes **`/v1/chat/completions`**, **`/v1/completions`**, **`/v1/embeddings`** (real round-trip to the engine, not synthetic vectors), and **`/v1/models`**. The admin CLI **`cgn-ctl`** reads and writes **etcd** for cluster state (`cluster nodes`, cordon/drain, `model load/unload`), and **`cgn-ctl install --target single-node --apply`** can render `cognitora.toml` plus `compose.yaml` and bring the stack up with one command. **`cgn-metrics`** exposes Prometheus federation at **`/federate`** so upstream Prometheus scrapes a single endpoint with per-component labels. There is also a **single-manifest Kubernetes quickstart** (etcd + llama.cpp engine + router + agent + metrics in one Pod, LoadBalancer on port 80) that has been exercised end-to-end on **GKE Autopilot**—details in the "Try it" section below.
 
 This post is the long-form version of *why that combination of choices*, and what falls out of them.
 
 ```bash
-# One-line install — six static binaries, no runtime deps
-curl -fsSL https://raw.githubusercontent.com/antonellof/cognitora-inference/main/deploy/installer/install.sh | sh
+# One-line install — six static binaries, no runtime deps (pin a release for reproducibility)
+curl -fsSL https://raw.githubusercontent.com/antonellof/cognitora-inference/main/deploy/installer/install.sh | CGN_VERSION=v0.3.0 sh
 
 # Bring up Llama-3.1 8B on a single GPU with vLLM
 bash recipes/llama3-8b/vllm/agg/up.sh
+# Equivalent:
+# cgn-ctl recipe up llama3-8b/vllm/agg
 
 # Same model, prefill/decode disaggregated across two GPUs
 bash recipes/llama3-8b/vllm/disagg-single-node/up.sh
+
+# Single-node Docker install (writes cognitora.toml + compose.yaml, optional --apply)
+cgn-ctl install --target single-node --model llama3-8b --engine vllm --apply
 ```
 
 ## The thing inference engines don't do
@@ -39,8 +46,8 @@ The Cognitora bet is that the orchestration layer should be **one runtime, in Ru
 | `cgn-router`     | OpenAI-compatible HTTP gateway + KV-aware routing                  |
 | `cgn-agent`      | Per-node engine supervisor + NVML telemetry                        |
 | `cgn-kvcached`   | Tiered KV cache daemon (GPU / RAM / SSD) + QUIC/RDMA peer fetch    |
-| `cgn-metrics`    | Prometheus aggregator + Redfish/IPMI/DCGM power telemetry          |
-| `cgn-ctl`        | Admin CLI (install, cluster, model, pki, bench)                    |
+| `cgn-metrics`    | Prometheus aggregator + federation `/federate`; Redfish/IPMI/DCGM where available |
+| `cgn-ctl`        | Admin CLI — etcd-backed `cluster`/`model`, single-node `install`, PKI, bench |
 | `cgn-operator`   | Optional Kubernetes operator (kube-rs)                             |
 
 The `cgn-operator` is optional on purpose. If you run on bare metal, the systemd path is a first-class citizen rather than the "deprecated, please use the Helm chart" path that most cloud-native projects eventually push you toward.
@@ -99,6 +106,8 @@ The KV cache is a hierarchy in any non-trivial deployment: GPU HBM is hot and sm
 
 The federation piece is the part that surprised me on first read. Cognitora's router can form a **federation across clusters**, not just nodes — meaning a hot prefix that exists in your Frankfurt region can serve a request that landed on your Virginia router, if the prefill cost amortized across the network round-trip beats recomputing locally. Most production stacks do not even attempt this; they treat each cluster as an island. Whether that capability is *worth the operational complexity* depends entirely on your traffic shape, and Cognitora makes the right call by leaving it off by default.
 
+Separately, **`cgn-metrics`** solves a smaller but universal ops problem: **in-cluster Prometheus federation**. Configure scrape targets in TOML and the daemon unions every target's `/metrics` text, injects a `cgn_target="<name>"` label on each line, and serves the combined exposition at **`/federate`** — one scrape for your central Prometheus, without parsing the full metric stream twice. That is observability plumbing, not cross-region routing; both use the word "federation" but they are different mechanisms.
+
 ## Energy-aware scheduling
 
 The bit of the design I like most aesthetically is also the one with the least proven impact: routing decisions can incorporate **power telemetry from Redfish, IPMI, and DCGM**. A GPU that is thermally throttled, or a node whose PSU is drawing closer to its budget than its neighbors, gets weighted down in admission control. The stated efficiency target — **≥ 1.4× over a round-robin baseline** — is plausible on workloads where the cluster is power-limited rather than compute-limited, which is increasingly the situation in modern racks where power per rack-U is the binding constraint.
@@ -119,7 +128,7 @@ Dynamo is the obvious comparison and the most capable alternative. The two proje
 | Cross-cluster federation        | yes — QUIC peer fetch + router federation                          | single cluster only                                      |
 | Multi-model cascade             | yes — SLM→LLM logprob gating                                       | partial                                                  |
 | Energy / power telemetry        | yes — Redfish + IPMI + DCGM                                        | not yet                                                  |
-| Deployment surfaces             | Bare metal (systemd), Kubernetes (Helm), Terraform                 | Kubernetes-first (operator + CRDs)                       |
+| Deployment surfaces             | Bare metal, Docker Compose, K8s manifest or Helm (chart local path today), Terraform (modules WIP) | Kubernetes-first (operator + CRDs)                       |
 | Multimodal / video pipelines    | not yet                                                            | yes — Image E/P/D, FastVideo, SGLang Diffusion           |
 | Gang scheduling                 | basic (node selectors)                                             | Grove (NVL72-aware)                                      |
 | Install surface                 | one curl line, six static binaries                                 | pip, container, or operator                              |
@@ -160,17 +169,18 @@ For workloads where ~70% of requests are genuinely simple (classification-shaped
 
 A few things I would want to know before betting a production deployment on this:
 
-- **Pre-1.0.** The OpenAI-compatible HTTP surface is stable; the internal gRPC APIs and TOML config surface may shift in minor releases. Pin a version and read the changelog.
+- **Pre-1.0.** The OpenAI-compatible HTTP surface is stable; internal gRPC APIs and the TOML config surface may still shift in minor releases. Pin **`CGN_VERSION=v0.3.0`** (or newer) on the install script and read the [changelog](https://github.com/antonellof/cognitora-inference/blob/main/CHANGELOG.md).
+- **Helm chart maturity.** The chart under `deploy/kubernetes/helm/cognitora/` exists and `helm lint` passes in CI, but **there is no published OCI chart at `oci://ghcr.io/…` yet**—you install from a **local chart path** or use the **quickstart manifest** below until the chart ships optional engine sidecars and a simpler dev-default TLS story. Terraform modules for cloud VMs are still thin stubs; the credible cloud path today is **bring your own cluster** + quickstart or Helm from a git checkout.
 - **No multimodal/video.** If your roadmap includes image generation or video diffusion serving, Dynamo is ahead. The Cognitora architecture has no in-principle obstacle here, but the engine integrations are not shipped today.
 - **Gang scheduling is basic.** Node selectors, not [Grove](https://github.com/NVIDIA/grove)-style NVL72-aware co-scheduling. If you operate NVL72 racks and need topology-aware placement, Dynamo is the better fit until this lands.
-- **The performance numbers are targets, not benchmarks on your traffic.** The architecture supports them; whether your specific workload realizes them depends on prefix sharing, request shape, and hardware mix. The right move on a new deployment is to A/B against round-robin on a slice of real traffic and measure.
+- **The performance numbers are targets, not benchmarks on your traffic.** The architecture supports them; whether your specific workload realizes them depends on prefix sharing, request shape, and hardware mix. The right move on a new deployment is to A/B against round-robin on a slice of real traffic and measure. CI runs a **soft** perf gate (`cargo bench` on routing/prefix paths, non-blocking on PRs); hard regression gating is planned once baselines stabilize.
 - **The cross-cluster federation story is powerful and operationally heavy.** Turn it on only when you actually have multi-region traffic that benefits from it. The defaults are sensibly conservative.
 
 ## Try it
 
 ```bash
-# Install — six static binaries, no runtime deps
-curl -fsSL https://raw.githubusercontent.com/antonellof/cognitora-inference/main/deploy/installer/install.sh | sh
+# Install — six static binaries, no runtime deps (pin the release)
+curl -fsSL https://raw.githubusercontent.com/antonellof/cognitora-inference/main/deploy/installer/install.sh | CGN_VERSION=v0.3.0 sh
 
 # Bring up Llama-3.1 8B on a single GPU with vLLM
 bash recipes/llama3-8b/vllm/agg/up.sh
@@ -180,15 +190,34 @@ bash recipes/llama3-8b/vllm/disagg-single-node/up.sh
 
 # Llama-3.3 70B FP8 on 4×H100 with TP=4
 HF_TOKEN=… bash recipes/llama3-70b/vllm/agg/up.sh
+
+# Admin: inspect nodes / desired models in etcd (needs etcd endpoints in cognitora.toml)
+cgn-ctl cluster nodes
+cgn-ctl model ls
 ```
 
-On Kubernetes:
+**Kubernetes — fastest path to a public URL** (CPU demo: TinyLlama via llama.cpp in-cluster; no GPU quota required). Validated on GKE Autopilot; same manifest works on other clouds or local clusters (use port-forward if LoadBalancer stays pending):
 
 ```bash
-helm install cognitora oci://ghcr.io/antonellof/charts/cognitora \
+kubectl apply -f https://raw.githubusercontent.com/antonellof/cognitora-inference/main/deploy/kubernetes/quickstart/cognitora-cpu.yaml
+kubectl -n cognitora wait --for=condition=ready pod -l app=cognitora --timeout=10m
+IP=$(kubectl -n cognitora get svc cognitora-router -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -sS "http://$IP/v1/chat/completions" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"tinyllama","messages":[{"role":"user","content":"What is 2+2?"}]}'
+```
+
+**Kubernetes — Helm from a git checkout** (production-shaped chart; wire your own engine / GPU pool—the chart assumes mTLS material unless you adjust values):
+
+```bash
+git clone https://github.com/antonellof/cognitora-inference.git && cd cognitora-inference
+helm install cognitora ./deploy/kubernetes/helm/cognitora \
+  --namespace cognitora --create-namespace \
   --set router.replicas=2 \
   --set models.llama3-70b.tp=4
 ```
+
+An **`oci://ghcr.io/antonellof/charts/cognitora`** one-liner is **not** published yet; track it in the repo's `plan.md`. Until then, local chart path or the quickstart manifest above.
 
 From source (if you want to read the routing code, which I recommend — it is the most interesting part):
 
@@ -200,17 +229,18 @@ cargo build --release --no-default-features \
   -p cgn-metrics -p cgn-ctl -p cgn-operator
 ```
 
-Once a router is up, point any OpenAI-compatible client at it. The wire protocol is the lingua franca, so existing application code does not change.
+Once a router is up, point any OpenAI-compatible client at it. The wire protocol is the lingua franca, so existing application code does not change. Use **`/v1/embeddings`** only when the loaded model is an embedding model—chat checkpoints will correctly surface as errors through the stack rather than fake vectors.
 
 ## Why this shape of system, now
 
 The closing observation is meta. For two years the LLM-inference field has tolerated a stack where Python is in the request path, Kubernetes is the only first-class deployment target, and "the orchestrator" is whatever combination of Nginx, Redis, and homegrown schedulers a given team has glued together. That stack works at startup scale. It does not work at datacenter scale, where a 1% efficiency gain is worth more than a feature, where the difference between sub-500-µs and 5-ms routing decisions shows up as a line item, and where the operations team would prefer a single binary they can `strace`.
 
-Cognitora is one answer to *"what would the orchestrator look like if it were designed today, for that scale, in one language, with KV cache reuse as the centerpiece rather than an afterthought?"* NVIDIA Dynamo is another. Both are credible; they make different bets on the runtime shape (single-binary Rust vs Rust+Python), the deployment surface (bare-metal-first vs Kubernetes-first), and the engine ecosystem (broad including llama.cpp/OpenAI-compat vs the three industrial engines). Which one fits depends on what your fleet actually looks like — and the fact that there are two well-engineered open-source choices in this layer at all is a meaningful change from where the field was twelve months ago.
+Cognitora is one answer to *"what would the orchestrator look like if it were designed today, for that scale, in one language, with KV cache reuse as the centerpiece rather than an afterthought?"* NVIDIA Dynamo is another. Both are credible; they make different bets on the runtime shape (six small Rust binaries vs Rust+Python), the deployment surface (bare-metal-first vs Kubernetes-first), and the engine ecosystem (broad including llama.cpp/OpenAI-compat vs the three industrial engines). Which one fits depends on what your fleet actually looks like — and the fact that there are two well-engineered open-source choices in this layer at all is a meaningful change from where the field was twelve months ago.
 
 **Links:**
 
 - [Cognitora repository](https://github.com/antonellof/cognitora-inference) — Apache-2.0, Rust 1.89+
+- [CHANGELOG](https://github.com/antonellof/cognitora-inference/blob/main/CHANGELOG.md) · [v0.3.0 release](https://github.com/antonellof/cognitora-inference/releases/tag/v0.3.0)
 - [NVIDIA Dynamo](https://github.com/ai-dynamo/dynamo) — the closest comparable system
 - [vLLM Production Stack](https://github.com/vllm-project/production-stack) — vLLM-only alternative
 - [NIXL](https://github.com/ai-dynamo/nixl) — the disaggregation transport both projects build on
