@@ -5,6 +5,7 @@ date: 2020-10-20
 categories: [How-To]
 tags: [React, Design System, UI]
 excerpt: "Three React apps, three different button styles, zero consistency. Building a design system fixed the UI chaos—and gave us Storybook, design tokens, and the hardest lesson: adoption is harder than implementation."
+render_with_liquid: false
 ---
 
 We had three React applications and approximately seven different "primary button" styles. Blue buttons. Slightly different blue buttons. Blue buttons with wrong padding. One team used Material-UI, another had custom CSS, the third copy-pasted Bootstrap components from 2016.

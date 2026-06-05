@@ -5,6 +5,7 @@ date: 2020-03-04
 categories: [How-To]
 tags: [GitHub Actions, CI/CD, Automation]
 excerpt: "We deleted our Jenkins server the week GitHub Actions went GA. Here's how to build CI/CD workflows that actually run—tests, Docker builds, multi-environment deploys, and the caching tricks that keep your minutes bill sane."
+render_with_liquid: false
 ---
 
 For years, our CI/CD setup was a Jenkins server running on a forgotten EC2 instance. It worked—until it didn't. Plugins broke after updates nobody remembered installing. The machine ran out of disk space every few months. Deploys required SSH-ing into Jenkins to "kick it." When GitHub Actions went GA in late 2019, we migrated in a week and haven't looked back.

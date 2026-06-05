@@ -5,6 +5,7 @@ date: 2019-07-23
 categories: [How-To]
 tags: [React, Hooks, JavaScript]
 excerpt: "React Hooks killed the class component — and my weekend. Here's the practical guide I wish I'd had when useEffect betrayed me at 2am."
+render_with_liquid: false
 ---
 
 I remember the exact moment hooks broke my brain.

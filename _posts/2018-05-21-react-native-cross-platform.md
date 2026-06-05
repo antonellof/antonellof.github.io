@@ -5,6 +5,7 @@ date: 2018-05-21
 categories: [How-To]
 tags: [React Native, Mobile, Cross-Platform, JavaScript]
 excerpt: "We had two developers, two app stores, and a deadline that assumed we had four developers. React Native didn't make mobile easy—it made mobile possible."
+render_with_liquid: false
 ---
 
 The pitch was simple: one codebase, two app stores, native performance. The reality, as we learned shipping our first React Native app, was more like one codebase, two app stores, three build systems, and a growing collection of `Platform.OS` conditionals.

@@ -5,6 +5,7 @@ date: 2024-05-23
 categories: [How-To]
 tags: [Nomad, Orchestration, Containers, DevOps]
 excerpt: "Orchestrate workloads with HashiCorp Nomad: job scheduling, multi-cloud deployment, container and VM support, and when to choose Nomad over Kubernetes."
+render_with_liquid: false
 ---
 
 [HashiCorp Nomad](https://www.nomadproject.io/) is the orchestrator you reach for when Kubernetes feels like overkill. It schedules containers, VMs, Java apps, static binaries—basically anything—across your infrastructure with a fraction of Kubernetes's operational complexity.

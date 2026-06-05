@@ -5,6 +5,7 @@ date: 2025-02-08
 categories: [How-To]
 tags: [SolidJS, React, Frontend, Framework]
 excerpt: "Build reactive UIs with SolidJS: fine-grained reactivity, performance benefits, component patterns, and how SolidJS compares to React."
+render_with_liquid: false
 ---
 
 [SolidJS](https://www.solidjs.com/) is what happens when you take React's API and throw away the virtual DOM. Created by [Ryan Carniato](https://github.com/ryansolid), Solid delivers React-like DX with performance that rivals vanilla JavaScript.

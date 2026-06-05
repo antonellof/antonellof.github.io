@@ -5,6 +5,7 @@ date: 2019-02-28
 categories: [Architecture]
 tags: [Prometheus, Grafana, Observability]
 excerpt: "Our microservices were 'fine' until we couldn't tell which one was on fire. Prometheus and Grafana turned guesswork into graphs—and graphs into sleep."
+render_with_liquid: false
 ---
 
 "We're getting errors."

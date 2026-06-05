@@ -5,6 +5,7 @@ date: 2021-01-02
 categories: [Deep Dive]
 tags: [Kubernetes, CRD, Operators]
 excerpt: "kubectl apply -f database.yaml and get a running PostgreSQL instance—that's what operators do. CRDs extend Kubernetes' API with your domain, and operators make it actually work."
+render_with_liquid: false
 ---
 
 I watched a platform engineer manually provision databases for the third time that week. Copy Deployment YAML. Adjust environment variables. Create PVC. Set up Service. Wait. Repeat for Redis. Repeat for RabbitMQ. Same steps, different values, error-prone and boring.
