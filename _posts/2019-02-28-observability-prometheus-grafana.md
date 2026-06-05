@@ -4,29 +4,44 @@ title: "Observability in Microservices: Prometheus and Grafana"
 date: 2019-02-28
 categories: [Architecture]
 tags: [Prometheus, Grafana, Observability]
-excerpt: "Implement observability in microservices using Prometheus for metrics collection and Grafana for visualization. Learn about metrics, alerts, and dashboards."
+excerpt: "Our microservices were 'fine' until we couldn't tell which one was on fire. Prometheus and Grafana turned guesswork into graphs—and graphs into sleep."
 ---
 
-Observability is critical for microservices. After implementing Prometheus and Grafana in production, here's how to set up effective monitoring.
+"We're getting errors."
 
-## What is Observability?
+"Which service?"
 
-Observability consists of:
-- **Metrics** - Quantitative measurements
-- **Logs** - Event records
-- **Traces** - Request flows
+"...the backend one?"
 
-## Prometheus Overview
+If you've had this conversation in Slack, congratulations—you've discovered why **monitoring isn't optional** once you split a monolith into seventeen deployable units that all insist they're healthy because their process didn't crash.
 
-Prometheus is a metrics collection and alerting system:
-- Pull-based metrics
-- Time-series database
-- PromQL query language
-- Alerting rules
+Logs tell you what happened. Traces tell you where it happened. **Metrics tell you how often, how bad, and whether it's getting worse**—usually before users paste your outage into Twitter.
 
-## Basic Setup
+In 2019, our stack for that third pillar was Prometheus (collect and alert) plus Grafana (make humans understand). This post is how we wired it up, what we instrumented, and the mistakes that taught us cardinality is not your friend.
 
-### Prometheus Configuration
+## The three pillars (and why metrics come first)
+
+**Observability** means you can answer novel questions about system behavior without redeploying code. Practically:
+
+- **Metrics** — numbers over time: request rate, error rate, latency, CPU
+- **Logs** — discrete events: stack traces, audit trails, "why did user 48291 fail?"
+- **Traces** — request paths across services: where did those 800ms go?
+
+You need all three eventually. But metrics are the fastest path to "is the thing on fire right now?" Start there.
+
+## Prometheus: pull, don't push (mostly)
+
+Prometheus scrapes HTTP endpoints on a schedule. Your app exposes `/metrics`; Prometheus polls it every N seconds and stores time-series data. No agent shipping logs around—just a pull model that scales surprisingly well.
+
+Core pieces:
+- Pull-based collection
+- Built-in time-series database
+- PromQL for queries
+- Alerting rules that feed Alertmanager
+
+## Stand up the stack
+
+### Prometheus config
 
 ```yaml
 # prometheus.yml
@@ -49,7 +64,9 @@ scrape_configs:
     metrics_path: '/metrics'
 ```
 
-### Docker Compose
+Fifteen-second scrape interval is a reasonable default. Aggressive enough to catch spikes, gentle enough that you won't DDoS yourself. Tune per service if you have opinions.
+
+### Docker Compose (the fastest way to experiment)
 
 ```yaml
 version: '3'
@@ -90,9 +107,13 @@ volumes:
   grafana-data:
 ```
 
-## Instrumenting Applications
+Spin this up, hit Grafana on port 3000, add Prometheus as a data source (`http://prometheus:9090`), and you're already ahead of teams still grepping production logs for "ERROR."
 
-### Node.js Example
+## Instrument your apps (this is where it gets useful)
+
+Default process metrics are fine for "is the box alive?" Custom metrics answer "is *our code* alive?"
+
+### Node.js with prom-client
 
 ```javascript
 const express = require('express');
@@ -157,7 +178,9 @@ app.get('/metrics', async (req, res) => {
 app.listen(8080);
 ```
 
-### Python Example
+The histogram is the important bit. Counters tell you volume; histograms let you compute percentiles—the difference between "average latency looks fine" and "p99 is murdering mobile users."
+
+### Python
 
 ```python
 from prometheus_client import start_http_server, Counter, Histogram, Gauge
@@ -195,9 +218,13 @@ def handle_request(method, endpoint):
 start_http_server(8000)
 ```
 
-## PromQL Queries
+Expose `/metrics` on a port that isn't your public API. Security groups exist for a reason.
 
-### Basic Queries
+## PromQL: the language of "is it bad?"
+
+PromQL looks weird for a day, then becomes second nature.
+
+### The queries you'll actually use
 
 ```promql
 # Rate of HTTP requests per second
@@ -217,7 +244,9 @@ rate(http_requests_total{status=~"5.."}[5m]) /
 rate(http_requests_total[5m])
 ```
 
-### Advanced Queries
+`rate()` is your best friend. Raw counters only go up; `rate()` tells you how fast. The `[5m]` window smooths noise—shorter windows react faster but cry wolf more often.
+
+### Infrastructure queries
 
 ```promql
 # CPU usage percentage
@@ -234,7 +263,11 @@ rate(node_disk_io_time_seconds_total[5m])
 rate(node_network_receive_bytes_total[5m])
 ```
 
-## Alerting Rules
+## Alerting: wake humans only when necessary
+
+A dashboard nobody looks at is art. An alert that pages you every Tuesday because someone ran a batch job is a morale problem.
+
+### Alert rules
 
 ```yaml
 # alerts.yml
@@ -295,7 +328,9 @@ groups:
           summary: "Low disk space"
 ```
 
-### Alertmanager Configuration
+The `for: 5m` clause is critical. It means "condition must be true for five continuous minutes before firing." Without it, every deploy blip becomes a PagerDuty ticket and engineers start ignoring alerts—which is worse than no alerts.
+
+### Alertmanager routing
 
 ```yaml
 # alertmanager.yml
@@ -337,9 +372,13 @@ receivers:
         smarthost: 'smtp.example.com:587'
 ```
 
-## Grafana Dashboards
+Route critical to PagerDuty, warnings to Slack, and resist the urge to page for everything. Alert fatigue kills observability programs faster than any technical limitation.
 
-### Dashboard JSON
+## Grafana: make the numbers legible
+
+Prometheus stores data; Grafana makes you want to look at it. Build dashboards around **the four golden signals** where they apply: latency, traffic, errors, saturation.
+
+### Dashboard panel example
 
 ```json
 {
@@ -378,7 +417,7 @@ receivers:
 }
 ```
 
-### Grafana Queries
+### Queries you'll paste into panels constantly
 
 ```promql
 # Request rate by endpoint
@@ -395,9 +434,11 @@ active_connections
 100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
 ```
 
-## Service Discovery
+One dashboard per service, one overview dashboard for executives who ask "is it up?" without wanting PromQL tutorials.
 
-### Kubernetes Service Discovery
+## Kubernetes service discovery
+
+Static targets don't scale in K8s. Pods come and go; Prometheus should notice:
 
 ```yaml
 scrape_configs:
@@ -419,27 +460,34 @@ scrape_configs:
         target_label: __address__
 ```
 
-## Best Practices
+Annotate pods with `prometheus.io/scrape: "true"` and friends. Let relabeling do the rest.
 
-1. **Use consistent labels** - Standardize label names
-2. **Avoid high cardinality** - Don't use user IDs as labels
-3. **Set appropriate scrape intervals** - Balance freshness vs load
-4. **Use recording rules** - Pre-compute expensive queries
-5. **Monitor Prometheus itself** - Track its performance
-6. **Retention policy** - Configure data retention
-7. **Alert on alerting** - Monitor alert delivery
-8. **Document metrics** - Clear help text and labels
+## What we learned the hard way
 
-## Conclusion
+**Label consistency matters.** `http_method` in one service and `method` in another makes cross-service dashboards painful. Pick a convention and enforce it in code review.
 
-Prometheus + Grafana provide:
-- Comprehensive metrics collection
-- Powerful query language
-- Effective alerting
-- Beautiful visualizations
+**High cardinality will eat Prometheus alive.** Never use user IDs, request IDs, or unbounded URL paths as label values. We learned this when someone labeled by `user_id` and our TSDB grew like a chia pet. Use logs or traces for per-user debugging.
 
-Start with basic metrics, then add custom metrics and alerts. The patterns shown here handle production monitoring.
+**Scrape interval is a tradeoff.** Faster scrapes mean fresher data and more load. Match interval to how quickly you need to detect failure.
+
+**Recording rules precompute expensive queries.** If your dashboard runs a horrifying `histogram_quantile` across fifty services every refresh, pre-aggregate it.
+
+**Monitor Prometheus itself.** If the metrics system is down, you're flying blind. Alert on `up{job="prometheus"}` and disk usage on the TSDB volume.
+
+**Set retention deliberately.** Default local storage keeps ~15 days. Know your limit before an incident needs month-old data.
+
+**Test alert delivery.** An alert that doesn't reach anyone is performance art. Verify PagerDuty and Slack integrations after every config change.
+
+**Write good `help` text on metrics.** Future you grepping `http_requests_total` at 3am will appreciate knowing what `status` means.
+
+## Start small, iterate loudly
+
+Day one: node-exporter plus default app metrics. Week two: request duration histograms and error-rate alerts. Month two: SLO dashboards and recording rules.
+
+You don't need perfect observability before you ship. You need enough signal to answer "which service?" without guessing—and enough discipline to not alert on noise.
+
+Prometheus and Grafana won't fix your architecture. They'll make your architecture's mistakes visible early, which is almost as good.
 
 ---
 
-*Observability with Prometheus and Grafana from February 2019, covering Prometheus 2.0+ features.*
+*Written February 2019, covering Prometheus 2.0+ and Grafana's mainstream dashboard era. Ecosystem tooling (OpenTelemetry, Grafana Loki, etc.) has expanded since; pull-based metrics and thoughtful alerting remain the foundation.*

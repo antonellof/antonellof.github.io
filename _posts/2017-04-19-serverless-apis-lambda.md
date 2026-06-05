@@ -4,30 +4,31 @@ title: "Building Serverless APIs with AWS Lambda and API Gateway"
 date: 2017-04-19
 categories: [How-To]
 tags: [AWS, Lambda, API Gateway, Serverless, REST API]
-excerpt: "Complete guide to building production-ready REST APIs using AWS Lambda and API Gateway, including authentication, error handling, and deployment strategies."
+excerpt: "No servers, no SSH, no 3 AM paging because a box ran out of memory. Here's how we built production REST APIs on Lambda and API Gateway—with auth, validation, and the error handling that keeps you employed."
 ---
 
-Serverless APIs eliminate server management while providing automatic scaling and pay-per-use pricing. After building several serverless APIs in production, here's how to build them right.
+# Building Serverless APIs with AWS Lambda and API Gateway
 
-## Architecture Overview
+The pitch for serverless APIs sounds like a late-night infomercial: "What if you never provisioned another server? What if scaling happened automatically? What if you only paid when someone actually hit your endpoint?"
+
+The reality in 2017 was more nuanced—and more useful than the hype suggested. After shipping several production APIs on Lambda and API Gateway, I can say this: it works, it scales, and it has sharp edges you should know about before you deploy on Friday afternoon.
+
+This is the guide I wanted when I was staring at my first API Gateway event object wondering why `body` was a string and `pathParameters` was sometimes undefined.
+
+## The Architecture (It's Simpler Than You Think)
 
 ```
 Client → API Gateway → Lambda → DynamoDB/S3/etc
          (Routing)    (Logic)   (Data)
 ```
 
-API Gateway handles:
-- Request routing
-- Authentication/authorization
-- Rate limiting
-- Request/response transformation
+API Gateway is the bouncer. It handles routing, authentication, rate limiting, CORS, and request/response transformation. Lambda is the kitchen—it does the actual work. Your data store is whatever makes sense (DynamoDB was our default for serverless APIs in 2017).
 
-Lambda handles:
-- Business logic
-- Data processing
-- External API calls
+The split matters because it defines what you debug when things break. 401 errors? Probably Gateway auth config. 500s with weird timeouts? Probably Lambda. CORS errors that only happen in browsers? Definitely CORS config, and yes, you'll lose an afternoon to them anyway.
 
-## Basic Lambda Function
+## Your First Handler (Yes, Routing Lives Here)
+
+In 2017, a common pattern was a single Lambda with manual routing. It's not elegant, but it's honest:
 
 ```javascript
 // handler.js
@@ -70,9 +71,17 @@ exports.handler = async (event) => {
 };
 ```
 
-## API Gateway Configuration
+Three things to internalize immediately:
 
-### SAM Template
+1. **`body` is a string.** API Gateway doesn't parse JSON for you. `JSON.parse(body)` or regret.
+2. **You must return `statusCode`, `headers`, and `body`.** Lambda doesn't magically format HTTP responses.
+3. **CORS headers go on every response.** Including errors. Especially errors. Browsers are unforgiving.
+
+## Infrastructure: Pick Your Poison (SAM or Serverless Framework)
+
+Hand-configuring API Gateway in the AWS Console is a character-building exercise. Use infrastructure-as-code.
+
+### AWS SAM
 
 ```yaml
 # template.yaml
@@ -102,6 +111,8 @@ Resources:
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization'"
         AllowOrigin: "'*'"
 ```
+
+SAM is AWS-native. CloudFormation under the hood. Good if you're already in the AWS ecosystem and want minimal abstraction.
 
 ### Serverless Framework
 
@@ -140,9 +151,15 @@ resources:
         BillingMode: PAY_PER_REQUEST
 ```
 
-## RESTful API Structure
+Serverless Framework has a larger community, more plugins, and nicer DX for multi-function services. We used it for most projects.
 
-### Route Handler
+Both work. Pick one and learn its deploy commands. `serverless deploy` and `sam deploy --guided` should be muscle memory.
+
+## Structure Your API Like You Mean It
+
+Once you have more than two endpoints, organize code like a real application.
+
+### Route Module
 
 ```javascript
 // routes/users.js
@@ -194,7 +211,9 @@ module.exports = {
 };
 ```
 
-### Main Handler
+Business logic lives here. Database access lives here. The handler routes; it doesn't implement.
+
+### Main Handler With Proper Responses
 
 ```javascript
 // handler.js
@@ -269,9 +288,15 @@ function notFoundResponse() {
 }
 ```
 
-## Authentication
+Centralized response helpers aren't exciting, but they prevent the bug where your 404 response is missing CORS headers and your frontend blames your API for a CORS issue that's actually a routing issue.
+
+Initialize the DynamoDB client *outside* the handler. Connection reuse matters.
+
+## Authentication: Don't Roll Your Own (Much)
 
 ### API Keys
+
+Simple, effective for service-to-service or low-stakes endpoints:
 
 ```javascript
 // Check API key
@@ -294,7 +319,11 @@ exports.handler = async (event) => {
 };
 ```
 
+API Gateway can also validate API keys at the gateway level—less Lambda code, earlier rejection. Use that when you can.
+
 ### JWT Authentication
+
+For user-facing APIs, JWTs in the `Authorization` header:
 
 ```javascript
 const jwt = require('jsonwebtoken');
@@ -326,7 +355,9 @@ exports.handler = async (event) => {
 };
 ```
 
-## Error Handling
+Verify in Lambda or use API Gateway custom authorizers. Custom authorizers add latency but keep auth logic out of every function. For a single-function API, in-handler verification is fine.
+
+## Error Handling: The Difference Between "Broken" and "Debuggable"
 
 ```javascript
 class ApiError extends Error {
@@ -372,7 +403,9 @@ exports.handler = async (event) => {
 };
 ```
 
-## Request Validation
+Typed errors let you return correct status codes without a forest of if-else. Unexpected errors get logged with full stack traces but return generic messages to clients—because your database connection string doesn't belong in a JSON error response.
+
+## Request Validation: Trust Nothing From the Internet
 
 ```javascript
 const Joi = require('joi');
@@ -406,7 +439,11 @@ exports.handler = async (event) => {
 };
 ```
 
-## CORS Configuration
+Validate at the boundary. Lambda bills per millisecond—don't waste compute discovering that `email` is missing after three database calls.
+
+## CORS: The Necessary Evil
+
+Browsers enforce CORS. API Gateway and Lambda must cooperate:
 
 ```javascript
 const corsHeaders = {
@@ -437,9 +474,13 @@ exports.handler = async (event) => {
 };
 ```
 
-## Deployment
+`OPTIONS` preflight requests are real requests that need real responses. Forget them and spend two hours wondering why `curl` works but Chrome doesn't.
 
-### Using Serverless Framework
+For production, replace `'*'` with your actual frontend origin. Wildcard CORS is fine for development, lazy for production.
+
+## Deployment: Make It Boring
+
+### Serverless Framework
 
 ```bash
 # Install
@@ -455,7 +496,7 @@ serverless deploy function -f api
 serverless logs -f api --tail
 ```
 
-### Using AWS SAM
+### AWS SAM
 
 ```bash
 # Build
@@ -468,7 +509,11 @@ sam deploy --guided
 sam local start-api
 ```
 
-## Monitoring
+`sam local start-api` saved us hours. Test handlers locally with realistic API Gateway events before deploying to AWS.
+
+CI/CD tip: deploy from your pipeline, not your laptop. Same artifacts, same process, fewer "works on my machine" deploys.
+
+## Monitoring: Because "It Worked in Dev" Isn't a SLA
 
 ```javascript
 // Custom metrics
@@ -506,27 +551,35 @@ exports.handler = async (event) => {
 };
 ```
 
-## Best Practices
+CloudWatch gives you invocations, duration, and errors automatically. Custom metrics let you track business events—signups, failed validations, downstream timeouts.
 
-1. **Keep functions focused** - One function per resource/operation
-2. **Use environment variables** - For configuration
-3. **Implement proper error handling** - Return appropriate status codes
-4. **Validate input** - Use schemas
-5. **Enable CORS** - For web clients
-6. **Use API Gateway features** - Rate limiting, caching
-7. **Monitor performance** - Track metrics
-8. **Version your API** - Use API Gateway stages
+Set alarms before you need them. "I'll watch the dashboard" lasts exactly until the first incident.
 
-## Conclusion
+## Production Wisdom (Learned the Hard Way)
 
-Serverless APIs with Lambda and API Gateway provide:
-- Automatic scaling
-- Pay-per-use pricing
-- No server management
-- Built-in features (auth, rate limiting)
+Keep functions focused—one Lambda per resource or logical group, not one Lambda per endpoint unless you have a good reason. Environment variables for configuration; secrets in Parameter Store or Secrets Manager, not in your `serverless.yml` git history.
 
-Start simple, add complexity as needed. The patterns shown here handle millions of requests in production.
+Return proper HTTP status codes. A 200 with `{ "error": "not found" }` confuses clients and breaks caching semantics.
+
+Validate input at the boundary. Enable CORS correctly (yes, again—it's that important). Use API Gateway's built-in rate limiting and caching for read-heavy endpoints. Version your API through Gateway stages (`dev`, `staging`, `prod`) so you can roll back without redeploying Lambda.
+
+Start simple—one function, manual routing, DynamoDB. Add complexity when traffic demands it, not when architecture diagrams demand it.
+
+## The Bottom Line
+
+Serverless APIs with Lambda and API Gateway deliver what they promise:
+
+- Automatic scaling without capacity planning spreadsheets
+- Pay-per-use economics that favor spiky traffic
+- No server patching, no SSH, no midnight disk-full pages
+- Built-in gateway features: auth, throttling, caching, CORS (if you configure it)
+
+They also demand discipline: structured error handling, input validation, proper response formatting, and monitoring from day one.
+
+The patterns here handled millions of requests in our production APIs. None of them are clever. All of them are boring in the right ways.
+
+Build boring. Ship reliable. Optimize when metrics tell you to, not when conference talks make you anxious.
 
 ---
 
-*Serverless API patterns from April 2017, using AWS Lambda and API Gateway.*
+*Serverless API patterns from April 2017—AWS Lambda, API Gateway, Node.js 12.x, Serverless Framework v1.x, and DynamoDB on-demand not yet available (provisioned capacity or careful capacity planning required).*

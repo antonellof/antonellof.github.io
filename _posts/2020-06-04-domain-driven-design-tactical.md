@@ -4,30 +4,31 @@ title: "Domain-Driven Design: Tactical Patterns"
 date: 2020-06-04
 categories: [Architecture]
 tags: [DDD, Domain-Driven Design, Patterns]
-excerpt: "Learn DDD tactical patterns: entities, value objects, aggregates, domain services, repositories, and how to implement them in code."
+excerpt: "Strategic DDD draws the boundaries; tactical DDD writes the code inside them. Entities, value objects, aggregates, and repositories—the patterns that turn anemic data classes into domain models that actually enforce business rules."
 ---
 
-DDD tactical patterns help implement domain models. After applying these patterns in production, here's how to use them effectively.
+After we drew bounded contexts and stopped three teams from fighting over one `Product` table, we had a new problem: the code *inside* each context was still anemic. `OrderService` did everything. `Order` was a bag of getters and setters. Business rules lived in random service methods, untested and duplicated.
 
-## Tactical Patterns Overview
+Tactical DDD patterns fixed that. Not by adding complexity—forcing business logic into domain objects where it belongs. An `Order` that can't confirm itself when empty. A `Money` value object that refuses to add dollars to euros. An aggregate boundary that says "you can't modify order items without going through the Order root."
 
-Tactical patterns include:
-- **Entities** - Objects with identity
-- **Value Objects** - Immutable objects
-- **Aggregates** - Consistency boundaries
-- **Domain Services** - Domain logic
-- **Repositories** - Data access abstraction
+These patterns are the code-level companion to strategic DDD's context maps. Here's how I implement them in production JavaScript/TypeScript—and what mistakes to avoid.
 
-## Entities
+## The Tactical Pattern Toolkit
 
-### Definition
+| Pattern | Purpose | Key trait |
+|---------|---------|-----------|
+| Entity | Object with identity | Same ID = same thing, even if attributes change |
+| Value Object | Object defined by attributes | Immutable, no identity, interchangeable |
+| Aggregate | Consistency boundary | One root entity, external access only through root |
+| Domain Service | Logic that doesn't fit one entity | Stateless operations across objects |
+| Repository | Persistence abstraction | Collection-like interface for aggregates |
+| Application Service | Use case orchestration | Transactions, coordinates domain objects |
 
-Entities:
-- Have unique identity
-- Can change over time
-- Identified by ID, not attributes
+The goal: **rich domain models** where business rules live in domain objects, not scattered across "manager" and "helper" classes.
 
-### Implementation
+## Entities: Identity Over Attributes
+
+An entity has a unique identity that persists through attribute changes. Two `User` objects with the same ID are the same user, even if one has an updated email.
 
 ```javascript
 class User {
@@ -43,10 +44,6 @@ class User {
     
     get id() {
         return this._id;
-    }
-    
-    get name() {
-        return this._name;
     }
     
     updateName(newName) {
@@ -73,16 +70,13 @@ class User {
 }
 ```
 
-## Value Objects
+**Not an entity:** a `Money` amount of $10. Two $10 bills are interchangeable—you don't track individual bill serial numbers. That's a value object.
 
-### Definition
+**Entity test:** if two instances with different attribute values could still be "the same thing," it's an entity.
 
-Value Objects:
-- Defined by attributes, not identity
-- Immutable
-- No identity
+## Value Objects: Immutable, Validated, Interchangeable
 
-### Implementation
+Value objects are defined entirely by their attributes. No identity. Immutable—operations return new instances rather than mutating.
 
 ```javascript
 class Money {
@@ -95,15 +89,7 @@ class Money {
         }
         this._amount = amount;
         this._currency = currency;
-        Object.freeze(this); // Make immutable
-    }
-    
-    get amount() {
-        return this._amount;
-    }
-    
-    get currency() {
-        return this._currency;
+        Object.freeze(this);
     }
     
     add(other) {
@@ -139,11 +125,6 @@ class Address {
         Object.freeze(this);
     }
     
-    get street() { return this._street; }
-    get city() { return this._city; }
-    get state() { return this._state; }
-    get zipCode() { return this._zipCode; }
-    
     equals(other) {
         return other instanceof Address &&
                this._street === other._street &&
@@ -154,17 +135,15 @@ class Address {
 }
 ```
 
-## Aggregates
+Value objects are where validation lives. An invalid `Money` can't exist. An invalid `Address` can't be constructed. Invalid states become unrepresentable—a much stronger guarantee than validating at service boundaries.
 
-### Definition
+**Use value objects for:** money, addresses, date ranges, email addresses, coordinates, anything where you care about the value, not tracking a specific instance over time.
 
-Aggregates:
-- Consistency boundary
-- Root entity
-- Enforces invariants
-- Accessed through root
+## Aggregates: Consistency Boundaries
 
-### Implementation
+An aggregate is a cluster of entities and value objects treated as a single unit for data changes. One entity is the **aggregate root**—the only entry point for external access.
+
+Why? Because invariants span multiple objects. An `Order` with `OrderItems` has rules: can't confirm an empty order, can't modify items after shipping, total must match sum of items. The aggregate enforces these internally.
 
 ```javascript
 class Order {
@@ -176,35 +155,22 @@ class Order {
         this._total = new Money(0, 'USD');
     }
     
-    get id() {
-        return this._id;
-    }
+    get id() { return this._id; }
     
     get items() {
-        return [...this._items]; // Return copy
-    }
-    
-    get total() {
-        return this._total;
+        return [...this._items];  // Return copy — don't expose internals
     }
     
     addItem(productId, quantity, price) {
         if (this._status !== 'pending') {
             throw new Error('Cannot modify completed order');
         }
-        
         if (quantity <= 0) {
             throw new Error('Quantity must be positive');
         }
         
         const itemTotal = price.multiply(quantity);
-        this._items.push({
-            productId,
-            quantity,
-            price,
-            total: itemTotal
-        });
-        
+        this._items.push({ productId, quantity, price, total: itemTotal });
         this._total = this._total.add(itemTotal);
     }
     
@@ -214,9 +180,7 @@ class Order {
         }
         
         const index = this._items.findIndex(item => item.productId === productId);
-        if (index === -1) {
-            throw new Error('Item not found');
-        }
+        if (index === -1) throw new Error('Item not found');
         
         const item = this._items[index];
         this._total = this._total.subtract(item.total);
@@ -239,28 +203,25 @@ class Order {
 }
 ```
 
-## Domain Services
+**Rules I follow:**
+- One aggregate per transaction (usually)
+- Reference other aggregates by ID only, not object reference
+- Keep aggregates small—large aggregates = contention and complexity
+- External code calls methods on the root, never reaches into children
 
-### Definition
+## Domain Services: When Logic Doesn't Belong to One Object
 
-Domain Services:
-- Operations that don't belong to entities
-- Stateless
-- Domain logic
-
-### Implementation
+Sometimes business logic involves multiple aggregates or doesn't naturally fit one entity:
 
 ```javascript
 class OrderPricingService {
     calculateDiscount(order, customer) {
         let discount = new Money(0, 'USD');
         
-        // VIP customers get 10% discount
         if (customer.isVIP()) {
             discount = order.total.multiply(0.1);
         }
         
-        // Orders over $100 get $10 off
         if (order.total.amount > 100) {
             discount = discount.add(new Money(10, 'USD'));
         }
@@ -285,16 +246,11 @@ class OrderValidationService {
 }
 ```
 
-## Repositories
+Domain services are stateless. They operate on domain objects but don't hold state themselves. If you're tempted to inject a database into a domain service, it's probably an application service in disguise.
 
-### Definition
+## Repositories: Persistence Without Leaking
 
-Repositories:
-- Abstract data access
-- Collection-like interface
-- Domain-focused
-
-### Implementation
+Repositories abstract data access behind a collection-like interface. Domain code asks for an `Order` by ID; the repository handles MongoDB, PostgreSQL, or JSON files.
 
 ```javascript
 class OrderRepository {
@@ -304,15 +260,8 @@ class OrderRepository {
     
     async findById(id) {
         const data = await this.db.orders.findOne({ id });
-        if (!data) {
-            return null;
-        }
+        if (!data) return null;
         return this.toDomain(data);
-    }
-    
-    async findByCustomerId(customerId) {
-        const data = await this.db.orders.find({ customerId });
-        return data.map(this.toDomain);
     }
     
     async save(order) {
@@ -320,19 +269,12 @@ class OrderRepository {
         await this.db.orders.save(data);
     }
     
-    async delete(id) {
-        await this.db.orders.delete({ id });
-    }
-    
     toDomain(data) {
         const order = new Order(data.id, data.customerId);
-        // Restore state
         data.items.forEach(item => {
             order.addItem(item.productId, item.quantity, new Money(item.price, 'USD'));
         });
-        if (data.status === 'confirmed') {
-            order.confirm();
-        }
+        if (data.status === 'confirmed') order.confirm();
         return order;
     }
     
@@ -352,25 +294,15 @@ class OrderRepository {
 }
 ```
 
-## Application Services
+**One repository per aggregate root.** Don't create repositories for entities inside aggregates. Don't expose database queries through repositories—`findByCustomerId` is fine; `findWhereTotalGreaterThan` is probably a query service concern.
 
-### Definition
+## Application Services: Orchestrating Use Cases
 
-Application Services:
-- Orchestrate domain objects
-- Transaction boundaries
-- Use case implementation
-
-### Implementation
+Application services coordinate domain objects, manage transactions, and handle infrastructure concerns (sending emails, publishing events). They're thin—business logic stays in the domain.
 
 ```javascript
 class OrderApplicationService {
-    constructor(
-        orderRepository,
-        customerRepository,
-        inventoryService,
-        pricingService
-    ) {
+    constructor(orderRepository, customerRepository, inventoryService, pricingService) {
         this.orderRepository = orderRepository;
         this.customerRepository = customerRepository;
         this.inventoryService = inventoryService;
@@ -378,95 +310,71 @@ class OrderApplicationService {
     }
     
     async createOrder(customerId, items) {
-        // Load aggregate
         const customer = await this.customerRepository.findById(customerId);
-        if (!customer) {
-            throw new Error('Customer not found');
-        }
+        if (!customer) throw new Error('Customer not found');
         
-        // Create aggregate
         const order = new Order(generateId(), customerId);
         
-        // Add items
         for (const item of items) {
-            // Check inventory
             const stock = await this.inventoryService.getStock(item.productId);
             if (stock < item.quantity) {
                 throw new Error(`Insufficient stock for product ${item.productId}`);
             }
-            
             const price = await this.inventoryService.getPrice(item.productId);
             order.addItem(item.productId, item.quantity, price);
         }
         
-        // Apply discount
         const discount = this.pricingService.calculateDiscount(order, customer);
         order.applyDiscount(discount);
         
-        // Save aggregate
         await this.orderRepository.save(order);
-        
         return order.id;
-    }
-    
-    async confirmOrder(orderId) {
-        const order = await this.orderRepository.findById(orderId);
-        if (!order) {
-            throw new Error('Order not found');
-        }
-        
-        // Validate inventory
-        const errors = this.orderValidationService.validateOrder(
-            order,
-            await this.inventoryService.getInventory()
-        );
-        
-        if (errors.length > 0) {
-            throw new Error(`Validation failed: ${errors.join(', ')}`);
-        }
-        
-        // Confirm order
-        order.confirm();
-        
-        // Reserve inventory
-        for (const item of order.items) {
-            await this.inventoryService.reserve(item.productId, item.quantity);
-        }
-        
-        // Save
-        await this.orderRepository.save(order);
     }
 }
 ```
 
-## Best Practices
+If your application service has 200 lines of `if/else` business logic, that logic belongs in domain objects.
 
-1. **Keep aggregates small** - Consistency boundaries
-2. **Use value objects** - Immutable, validated
-3. **Protect invariants** - In aggregate root
-4. **Repository per aggregate** - One repository per aggregate
-5. **Domain services** - For cross-aggregate logic
-6. **Application services** - Orchestration layer
-7. **No anemic domain** - Behavior in domain objects
-8. **Test domain logic** - Unit tests for domain
+## Common Mistakes (I've Made All of These)
 
-## Common Mistakes
+**Anemic domain model.** Entities with only getters/setters. All logic in services. You have objects in name only.
 
-1. **Anemic domain model** - Data without behavior
-2. **Large aggregates** - Too many entities
-3. **Leaky repositories** - Exposing persistence details
-4. **Business logic in services** - Should be in domain
-5. **Mutable value objects** - Should be immutable
+**God aggregates.** One `Order` aggregate that includes Customer, Product, Inventory, and Shipping. Every change touches everything. Split it.
+
+**Leaky repositories.** Returning raw database rows to application code. The mapping layer exists for a reason.
+
+**Domain services with database access.** That's application service territory.
+
+**Mutable value objects.** Someone does `money.amount = -5` and your invariants are gone. Freeze them.
+
+## Testing: The Payoff
+
+Rich domain models are trivially unit-testable—no database, no HTTP, no mocks:
+
+```javascript
+test('cannot confirm empty order', () => {
+    const order = new Order('123', 'customer-1');
+    expect(() => order.confirm()).toThrow('Cannot confirm empty order');
+});
+
+test('money refuses currency mismatch', () => {
+    const usd = new Money(10, 'USD');
+    const eur = new Money(10, 'EUR');
+    expect(() => usd.add(eur)).toThrow('Cannot add different currencies');
+});
+```
+
+These tests run in milliseconds and document business rules better than any wiki page.
 
 ## Conclusion
 
-DDD tactical patterns enable:
-- Rich domain models
-- Clear boundaries
-- Testable code
-- Maintainable systems
+Tactical DDD isn't about ceremony—it's about putting business logic where it belongs. Entities for things with identity. Value objects for validated, immutable concepts. Aggregates for consistency boundaries. Repositories for persistence. Application services for orchestration.
 
-Start with entities and value objects, then add aggregates and repositories. The patterns shown here handle complex domains.
+The result: code that reads like the business domain, enforces invariants at construction, and tests without infrastructure. Your `Order` can't confirm itself when empty because the `Order` won't let it—not because a service checked first and hoped nobody called it differently elsewhere.
+
+Start with value objects (easy win, immediate validation benefits). Then enrich your entities with behavior. Draw aggregate boundaries around consistency requirements. Add repositories when persistence gets messy.
+
+Strategic patterns tell you where the boundaries are. Tactical patterns tell you what the code looks like inside. Both together—that's DDD worth doing.
 
 ---
 

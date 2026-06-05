@@ -4,22 +4,31 @@ title: "TypeScript in Production: Lessons Learned"
 date: 2017-09-07
 categories: [Lessons Learned]
 tags: [TypeScript, JavaScript, Production, Best Practices]
-excerpt: "Real-world lessons from using TypeScript in production, covering type safety, build configurations, migration strategies, and common pitfalls to avoid."
+excerpt: "A year of TypeScript in production taught us that types catch bugs — and that `any` is a trap door you will fall through at 11 p.m."
 ---
 
-TypeScript transformed how we write JavaScript. After migrating a large codebase to TypeScript and using it in production for over a year, here are the lessons that matter.
+The bug was a classic: `undefined is not a function`. Someone had refactored a user service, renamed a method, and updated fourteen call sites. They missed fifteen. JavaScript didn't care. Production did.
 
-## Why TypeScript?
+We'd been debating TypeScript for months — "it's just JavaScript with extra steps," "the build is slower," "who has time to write interfaces?" Then that bug cost us a rollback, an apology email, and roughly six hours of sleep. We started migrating the following Monday.
 
-Benefits we experienced:
-- **Fewer bugs**: Catch errors at compile time
-- **Better IDE support**: Autocomplete, refactoring
-- **Self-documenting**: Types serve as documentation
-- **Easier refactoring**: Confidence when changing code
+A year later, the codebase was mostly TypeScript, strict mode was on, and `any` was treated like `@ts-ignore`: a confession that you'd given up. Here's what actually mattered in production — not the theoretical benefits, but the patterns that stuck and the traps that didn't.
 
-## Migration Strategy
+## Why We Stayed After the Migration Pain
 
-### Gradual Migration
+The sales pitch is real, but the production receipts are better:
+
+- **Fewer runtime surprises**: Typos and wrong argument types die at compile time
+- **IDE superpowers**: Autocomplete that actually knows your data shapes
+- **Living documentation**: Types don't go stale like wiki pages
+- **Refactoring confidence**: Rename a field, let the compiler find every usage
+
+The build got slightly slower. The deploys got noticeably calmer. Fair trade.
+
+## Migration: Big Bang Is a Bad Idea
+
+Rewriting 40,000 lines of JavaScript over a weekend sounds heroic. It ends with a heroic rollback.
+
+### Gradual Migration via `allowJs`
 
 ```json
 // tsconfig.json - Allow JavaScript
@@ -33,7 +42,7 @@ Benefits we experienced:
 }
 ```
 
-Migrate file by file:
+New files get `.ts` extensions. Old files migrate when someone touches them for another reason. Boring? Yes. Sustainable? Also yes.
 
 ```typescript
 // Start with new files
@@ -52,7 +61,7 @@ export function getUser(id: string): Promise<User> {
 // old-file.js → old-file.ts
 ```
 
-### Using JSDoc for Gradual Typing
+### JSDoc: The Bridge for Files You Haven't Converted Yet
 
 ```javascript
 // user.js - Add JSDoc types
@@ -65,9 +74,11 @@ async function getUser(userId) {
 }
 ```
 
-## Type Definitions
+Turn on `checkJs` selectively for high-risk modules. You get type checking without renaming a single file.
 
-### Avoid `any`
+## Types: Your Best Friend and Your Worst Habit
+
+### `any` Is a Trap Door
 
 ```typescript
 // BAD
@@ -85,7 +96,11 @@ function processData(data: Data) {
 }
 ```
 
-### Use Union Types
+Every `any` is a hole in your safety net. One `any` at the API boundary can infect an entire call chain. We called it "type rot" — and it spread exactly like you'd expect.
+
+If you genuinely don't know the shape, use `unknown` and narrow it. `any` says "I give up." `unknown` says "prove what this is before you use it."
+
+### Union Types Beat Stringly-Typed APIs
 
 ```typescript
 // Instead of any
@@ -99,7 +114,9 @@ function updateStatus(status: Status) {
 updateStatus('invalid'); // Error!
 ```
 
-### Generic Types
+The compiler becomes your QA team for invalid states. `'invalid'` fails at build time, not in a user's browser.
+
+### Generics: Write Once, Type Many Things
 
 ```typescript
 // Reusable generic function
@@ -112,9 +129,13 @@ const user = await getById<User>('123');
 const order = await getById<Order>('456');
 ```
 
-## Common Patterns
+Generics shine in repositories and API clients. Less copy-paste, fewer "oops, that returns the wrong type" moments.
+
+## Patterns That Earned Their Keep
 
 ### API Response Types
+
+Untyped `response.json()` is a slot machine. You always win something; it's rarely what you expected.
 
 ```typescript
 // Define API response structure
@@ -138,7 +159,9 @@ if (result.error) {
 }
 ```
 
-### Event Handlers
+The `if (result.error)` branch is where TypeScript's control flow analysis quietly saves you from accessing `.data` on an error response.
+
+### Event Handlers Without `any`
 
 ```typescript
 // Type-safe event handlers
@@ -175,7 +198,9 @@ emitter.on<UserEvent>('user', (event) => {
 });
 ```
 
-### Database Models
+Yes, the internal `Map` still has `any` in the array type — we cleaned that up in pass two. Perfection is a journey.
+
+### Database Models and the Repository Pattern
 
 ```typescript
 // Define database models
@@ -203,9 +228,9 @@ class UserRepository {
 }
 ```
 
-## Configuration
+`Omit` and `Partial` are utility types you'll use constantly. Learn them early; you'll thank yourself when create/update DTOs stop duplicating the full model.
 
-### Strict Mode
+## Configuration: Strict Mode Is Worth the Initial Pain
 
 ```json
 // tsconfig.json - Enable strict checks
@@ -222,7 +247,9 @@ class UserRepository {
 }
 ```
 
-### Path Aliases
+Turning on `strictNullChecks` after six months of loose typing is a weekend project. Turning it on from day one is an afternoon of swearing followed by years of fewer null pointer... sorry, undefined errors.
+
+### Path Aliases Save Your Sanity
 
 ```json
 // tsconfig.json
@@ -244,7 +271,9 @@ import { User } from '@models/User';
 import { formatDate } from '@utils/date';
 ```
 
-## Testing with TypeScript
+`../../../models/User` doesn't scale. Neither does your patience for counting dots.
+
+## Testing: Types and Assertions
 
 ```typescript
 // test-utils.ts
@@ -274,7 +303,9 @@ describe('UserService', () => {
 });
 ```
 
-## Common Pitfalls
+Type predicates in tests bridge the gap between "the API returned something" and "TypeScript knows it's a User."
+
+## Pitfalls We Stepped In (So You Don't Have To)
 
 ### Over-Engineering Types
 
@@ -288,7 +319,9 @@ type Status = 'active' | 'inactive';
 type UserRole = 'admin' | 'user';
 ```
 
-### Ignoring Type Errors
+If you need a whiteboard to explain your type, simplify it. Clever conditional types impress in blog posts; they confuse in code review.
+
+### Suppressing Errors Instead of Fixing Them
 
 ```typescript
 // BAD: Suppressing errors
@@ -302,7 +335,9 @@ const result: any = someFunction();
 const result = someFunction() as ExpectedType;
 ```
 
-### Not Using Utility Types
+`@ts-ignore` is a TODO that compiles. We banned it in CI except with a required comment explaining why.
+
+### Redefining Types You Already Have
 
 ```typescript
 // BAD: Redefining types
@@ -327,9 +362,9 @@ type CreateUserRequest = Omit<User, 'id'>;
 type UpdateUserRequest = Partial<Omit<User, 'id'>>;
 ```
 
-## Build Configuration
+One source of truth. When `User` gains a field, your request types update automatically.
 
-### Production Build
+## Build Configuration: Dev vs. Prod
 
 ```json
 // tsconfig.prod.json
@@ -343,8 +378,6 @@ type UpdateUserRequest = Partial<Omit<User, 'id'>>;
 }
 ```
 
-### Development Build
-
 ```json
 // tsconfig.dev.json
 {
@@ -356,38 +389,22 @@ type UpdateUserRequest = Partial<Omit<User, 'id'>>;
 }
 ```
 
-## Best Practices
+Source maps in dev, stripped in prod. Stack traces in production should point to compiled code; debugging locally should point to your actual source.
 
-1. **Enable strict mode** - Catch more errors
-2. **Avoid `any`** - Use `unknown` if type is truly unknown
-3. **Use interfaces for objects** - More extensible
-4. **Use types for unions** - Better for complex types
-5. **Leverage utility types** - `Partial`, `Pick`, `Omit`
-6. **Document complex types** - Add comments
-7. **Use const assertions** - For literal types
-8. **Type external libraries** - Use `@types/` packages
+## What We Actually Did (Not a Checklist, a Sequence)
 
-## Migration Checklist
+We enabled `allowJs` and added a baseline `tsconfig.json`. New code was TypeScript from day one. We installed `@types/` packages for every dependency that had them. Existing files migrated opportunistically — touch a file, convert a file.
 
-- [ ] Enable `allowJs` for gradual migration
-- [ ] Add `tsconfig.json` with strict settings
-- [ ] Install type definitions for dependencies
-- [ ] Migrate new files to TypeScript
-- [ ] Gradually migrate existing files
-- [ ] Remove `any` types
-- [ ] Enable strict mode
-- [ ] Set up CI type checking
+We chased down `any` types like technical debt with interest. We enabled strict mode module by module, starting with the payment flow (highest stakes, highest payoff). CI ran `tsc --noEmit` on every pull request. No green build, no merge.
 
-## Conclusion
+## The Bottom Line
 
-TypeScript in production:
-- Reduces bugs significantly
-- Improves developer experience
-- Makes refactoring safer
-- Serves as documentation
+TypeScript in production isn't about typing everything perfectly on day one. It's about making wrong assumptions expensive at compile time instead of catastrophic at runtime.
 
-Start with gradual migration, enable strict mode, and avoid `any`. The investment pays off quickly in fewer bugs and better code quality.
+Start gradual. Enable strict mode as soon as you can stomach it. Treat `any` like a code smell. Use utility types instead of duplicating interfaces. Type your API boundaries first — that's where the bugs live.
+
+The migration took months. The payoff started in weeks. Fewer rollbacks, faster refactors, and IDE autocomplete that actually works. For a team shipping JavaScript to production, that's not "extra steps." That's fewer 11 p.m. pages.
 
 ---
 
-*TypeScript production lessons from September 2017, covering TypeScript 2.x patterns.*
+*Written September 2017, covering TypeScript 2.x patterns and tooling common at the time. Modern TypeScript has evolved significantly — but the migration lessons and strict-mode discipline still apply.*

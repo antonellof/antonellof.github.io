@@ -4,107 +4,119 @@ title: "Managing Remote Engineering Teams: Technical Practices"
 date: 2020-05-13
 categories: [Case Study]
 tags: [Remote Work, Team Management, Best Practices]
-excerpt: "Technical practices for managing remote engineering teams: async communication, code reviews, documentation, tooling, and building effective remote engineering culture."
+excerpt: "March 2020 sent everyone home. The teams that thrived weren't the ones with the best Zoom backgrounds—they had async workflows, ruthless documentation, and code review cultures that worked across time zones."
 ---
 
-Managing remote engineering teams requires different practices. After leading distributed teams, here are the technical practices that work.
+In March 2020, our office closed with 48 hours' notice. One day we were debating monitor stands; the next, everyone was home trying to figure out if their VPN worked. Some teams collapsed into endless Zoom calls. Others shipped faster than before.
 
-## Communication Practices
+The difference wasn't talent or tools. It was **technical practices adapted for distributed work**: async-first communication, documentation that replaced hallway conversations, code review processes that didn't require everyone online simultaneously, and tooling that made collaboration feel seamless across nine time zones.
 
-### Async-First Communication
+I'd managed remote engineers before COVID—this was different because *everyone* was remote, including leadership. The practices that worked became non-negotiable. Here's what actually mattered.
 
-**Principles:**
-- Default to async
-- Document decisions
-- Use appropriate channels
-- Respect time zones
+## Async-First: The Default That Changes Everything
 
-**Tools:**
-- **Slack** - Quick questions, team chat
-- **Email** - Formal communication, decisions
-- **GitHub Issues** - Technical discussions
-- **Loom** - Video explanations
-- **Notion** - Documentation
+Synchronous communication is expensive when your team spans US, Europe, and Asia. A "quick question" in Slack at 9 AM San Francisco is 6 PM in Berlin—maybe fine. It's midnight in Bangalore—not fine.
 
-### Documentation Standards
+**Our principle:** default to async. Sync only when async failed or the topic required real-time negotiation.
+
+| Channel | Use for | Don't use for |
+|---------|---------|---------------|
+| Slack | Quick questions, social, urgent blockers | Long technical debates |
+| GitHub Issues/PRs | Technical decisions, code discussion | "What should we have for lunch" |
+| Loom | Architecture explanations, demos | Replacing written docs |
+| Notion/Confluence | Decisions, runbooks, onboarding | Real-time chat |
+| Email | External comms, formal announcements | Day-to-day engineering |
+
+The test: *can someone in Tokyo contribute meaningfully to this conversation without staying up until 2 AM?* If no, move it async.
+
+### Documenting Decisions (Because Hallways Don't Exist)
+
+Every significant technical decision got written down:
 
 ```markdown
 # Technical Decision Record (TDR)
 
 ## Context
-Why this decision is needed
+Why this decision is needed. What constraints exist.
 
 ## Decision
-What we decided
+What we decided. Be specific.
 
 ## Consequences
-Positive and negative impacts
+Positive and negative impacts. What we're trading off.
 
 ## Alternatives Considered
-Other options we evaluated
+What else we evaluated and why we rejected it.
 ```
 
-## Code Review Practices
+This replaced the "oh, we discussed that in a meeting you weren't in" problem. New engineers could read decision history. Disagreements had context. Six months later, we remembered *why* we chose PostgreSQL over DynamoDB for that service.
 
-### Review Guidelines
+## Code Review: The Async Collaboration Engine
 
-**Review Checklist:**
-- [ ] Code follows style guide
-- [ ] Tests included
-- [ ] Documentation updated
-- [ ] No security issues
-- [ ] Performance considered
+Code review became our primary collaboration surface. Not Zoom. Not standups. Pull requests.
 
-**Review Process:**
-1. Author creates PR with clear description
-2. Request reviews from relevant team members
-3. Reviewers provide feedback within 24 hours
-4. Author addresses feedback
-5. Approve and merge
+### Review Standards That Worked Remotely
 
-### Async Code Reviews
+**Author responsibilities:**
+- PR description explains *what* and *why*, not just *how*
+- Link to ticket/design doc when relevant
+- Self-review before requesting others
+- Keep PRs small (<400 lines when possible)
 
-```javascript
-// PR Template
-## Description
-Brief description of changes
+**Reviewer responsibilities:**
+- First review within 24 hours (team agreement)
+- Ask questions, don't just request changes
+- Approve when "good enough to ship and improve later"
+- Use `[nit]` prefix for non-blocking suggestions
 
-## Type of Change
+```markdown
+## PR Template
+
+### Description
+What does this change and why?
+
+### Type of Change
 - [ ] Bug fix
 - [ ] New feature
 - [ ] Breaking change
+- [ ] Refactoring
 
-## Testing
-- [ ] Unit tests added
-- [ ] Integration tests added
+### Testing
+- [ ] Unit tests added/updated
+- [ ] Integration tests added/updated
 - [ ] Manual testing completed
 
-## Checklist
-- [ ] Code follows style guide
+### Checklist
 - [ ] Self-review completed
-- [ ] Comments added for complex logic
 - [ ] Documentation updated
+- [ ] No secrets committed
 ```
 
-## Development Workflow
+Small PRs got reviewed in hours. 2,000-line PRs sat for days and accumulated merge conflicts. We learned to enforce size limits culturally when we couldn't enforce them technically.
 
-### Git Workflow
+### Async Review in Practice
+
+A developer in London opens a PR at 5 PM GMT. San Francisco reviewers see it at 9 AM PST. Comments arrive throughout the US day. London developer addresses feedback the next morning. No one worked outside their hours. The PR merged in 36 hours—faster than most in-office teams I'd seen.
+
+The secret: **clear PR descriptions and small diffs.** Reviewers shouldn't need a Zoom call to understand what they're reviewing.
+
+## Development Workflow: Git and CI as Source of Truth
+
+### Feature Branch Workflow
 
 ```bash
-# Feature branch workflow
 git checkout -b feature/user-authentication
+# ... work ...
 git commit -m "Add user authentication"
 git push origin feature/user-authentication
-
-# Create PR on GitHub
-# Get reviews
-# Merge after approval
+# Open PR, get reviews, merge
 ```
 
-### CI/CD Pipeline
+Nothing exotic. Consistency mattered more than novelty. Everyone used the same flow, same branch naming, same merge strategy (squash and merge for clean history).
+
+### CI/CD as Quality Gate
 
 ```yaml
-# .github/workflows/ci.yml
 name: CI
 
 on:
@@ -122,50 +134,46 @@ jobs:
       run: npm run lint
 ```
 
-## Tooling
+PRs didn't merge with red CI. No exceptions, no "I'll fix it after merge." Remote teams can't tap someone on the shoulder about a broken build—you need automated gates.
 
-### Essential Tools
+## Tooling: The Remote Engineer's Toolkit
 
 **Development:**
-- **VS Code** - With Live Share for pair programming
-- **Git** - Version control
-- **Docker** - Consistent environments
-- **Terraform** - Infrastructure as code
+- **VS Code + Live Share** — pair programming without screen-share lag
+- **Docker** — identical dev environments (no more "works on my machine")
+- **Terraform/Pulumi** — infrastructure changes reviewed like code
 
 **Communication:**
-- **Slack** - Team chat
-- **Zoom** - Video calls
-- **Loom** - Async video
-- **Miro** - Whiteboarding
+- **Slack** — with norms (threads mandatory, @channel sparingly)
+- **Zoom** — scheduled, with agendas, recorded when useful
+- **Loom** — 3-minute architecture videos beat 30-minute meetings
 
-**Project Management:**
-- **GitHub Projects** - Issue tracking
-- **Jira** - Project management
-- **Notion** - Documentation
+**Project management:**
+- **GitHub Projects** — tied to repos, visible to everyone
+- **Notion** — onboarding docs, runbooks, team wiki
 
-### Development Environment
+### Consistent Dev Environments
 
 ```dockerfile
-# Dockerfile for consistent dev environment
 FROM node:18
-
 WORKDIR /app
-
 COPY package*.json ./
 RUN npm ci
-
 COPY . .
-
 CMD ["npm", "run", "dev"]
 ```
 
-## Documentation Practices
+`docker-compose up` and you have the same environment as everyone else. Onboarding dropped from 3 days to 4 hours. Support questions about "my local setup" virtually disappeared.
+
+## Documentation: Replace Tribal Knowledge
+
+Remote work kills tribal knowledge. If it's not written down, it doesn't exist.
 
 ### Code Documentation
 
 ```javascript
 /**
- * Authenticates a user with email and password
+ * Authenticates a user with email and password.
  * 
  * @param {string} email - User email address
  * @param {string} password - User password
@@ -180,148 +188,138 @@ async function authenticateUser(email, password) {
 }
 ```
 
+Not every function needs JSDoc. Public APIs, complex business logic, and non-obvious behavior do.
+
 ### Architecture Documentation
 
 ```markdown
 # System Architecture
 
 ## Overview
-High-level system description
+API gateway routing to microservices behind Kubernetes.
 
 ## Components
-- API Gateway
-- User Service
-- Order Service
-- Payment Service
+- API Gateway (Kong)
+- User Service (Node.js)
+- Order Service (Node.js)
+- PostgreSQL (primary data)
+- Redis (caching, sessions)
 
 ## Data Flow
-```
-User → API Gateway → Services → Database
-```
+User → API Gateway → Service → Database
 
 ## Deployment
-- Kubernetes cluster
-- Multi-region setup
+Kubernetes on AWS EKS, multi-AZ
 ```
 
-## Testing Practices
+Updated when architecture changed. Stale docs worse than no docs—we dated every page and reviewed quarterly.
 
-### Test Coverage
+## Testing: Confidence Without Colocation
+
+You can't tap a colleague to "just quickly check" your change. Tests are your safety net.
 
 ```javascript
-// Unit tests
 describe('UserService', () => {
     it('should authenticate valid user', async () => {
         const user = await userService.authenticate('user@example.com', 'password');
         expect(user).toBeDefined();
     });
 });
-
-// Integration tests
-describe('API Integration', () => {
-    it('should create order', async () => {
-        const response = await request(app)
-            .post('/api/orders')
-            .send({ userId: '123', items: [...] });
-        expect(response.status).toBe(201);
-    });
-});
 ```
 
-### Test Requirements
+**Our targets (pragmatic, not dogmatic):**
+- Unit tests: 80%+ coverage on business logic
+- Integration tests: critical API paths
+- E2E tests: top 5 user journeys
+- Performance tests: before major releases
 
-- **Unit tests** - 80%+ coverage
-- **Integration tests** - Critical paths
-- **E2E tests** - User journeys
-- **Performance tests** - Load testing
+## Onboarding: First Week Makes or Breaks Remote Hires
 
-## Onboarding
-
-### Onboarding Checklist
+Remote onboarding is harder. There's no "shadow someone for a day." You need structure:
 
 **Week 1:**
-- [ ] Access to all tools
-- [ ] Development environment setup
-- [ ] Codebase overview
-- [ ] Team introductions
+- [ ] Tool access (GitHub, Slack, AWS, VPN)
+- [ ] Dev environment running (`docker-compose up` works)
+- [ ] Read architecture docs and team wiki
+- [ ] 1:1 intro calls with each team member (30 min each)
 
 **Week 2:**
-- [ ] First small task assigned
-- [ ] Pair programming session
-- [ ] Architecture deep dive
-- [ ] Process documentation review
+- [ ] First small bug fix or doc improvement (merged PR)
+- [ ] Pair programming session via Live Share
+- [ ] Attend code reviews as observer
 
 **Month 1:**
-- [ ] First feature implementation
-- [ ] Code review participation
-- [ ] Team meeting participation
-- [ ] Feedback session
-
-### Onboarding Documentation
+- [ ] First feature shipped end-to-end
+- [ ] Led at least one code review
+- [ ] Feedback session with manager
 
 ```markdown
 # Engineering Onboarding Guide
 
-## Setup
-1. Install development tools
-2. Clone repositories
-3. Set up local environment
-4. Run test suite
+## Day 1 Setup
+1. Clone repo, run `docker-compose up`
+2. Run test suite (`npm test` — should be green)
+3. Join Slack channels (#engineering, #team-yourteam)
 
-## First Tasks
-- Fix a small bug
-- Add a test
-- Update documentation
+## First PR (Day 2-3)
+Fix a "good first issue" from GitHub. Goal: learn the PR workflow.
 
 ## Resources
-- Architecture docs
-- Style guide
-- Process documentation
+- Architecture overview (link)
+- Style guide (link)
+- On-call runbook (link)
 ```
 
-## Best Practices
+Every new hire improved the onboarding doc with questions they had. It got better continuously.
 
-1. **Async communication** - Default to async
-2. **Document decisions** - TDRs and ADRs
-3. **Code reviews** - Thorough and timely
-4. **Testing** - Comprehensive test coverage
-5. **Documentation** - Keep it updated
-6. **Tooling** - Right tools for the job
-7. **Onboarding** - Structured process
-8. **Regular syncs** - Weekly team meetings
+## Challenges We Hit (And Fixes)
 
-## Common Challenges
+### Time Zones
 
-### Challenge 1: Time Zones
+**Problem:** US-East and India had 10.5 hours overlap—zero if US folks didn't start early.
 
-**Solution:**
-- Overlap hours for sync meetings
-- Async communication default
-- Rotating meeting times
+**Fix:** 
+- Core overlap hours: 8-10 AM EST / 6:30-8:30 PM IST (2 hours daily)
+- Rotate meeting times monthly (fairness)
+- Record all meetings; written summaries mandatory
 
-### Challenge 2: Communication
+### Communication Overload
 
-**Solution:**
-- Clear communication guidelines
-- Multiple channels for different purposes
-- Regular team updates
+**Problem:** Slack became a never-ending stream. People felt they had to be always-on.
 
-### Challenge 3: Collaboration
+**Fix:**
+- Status norms: 🟢 available, 🟡 async only, 🔴 deep work
+- No expectation of instant response
+- "Done for the day" posts in team channel (psychological closure)
 
-**Solution:**
-- Pair programming tools
-- Code review culture
-- Shared documentation
+### Collaboration on Complex Work
+
+**Problem:** Architecture discussions in Slack threads went in circles.
+
+**Fix:**
+- RFC documents in Notion for anything >2 hours of debate
+- 48-hour comment period, then decision
+- Loom walkthroughs for visual explanations
+
+## What Actually Mattered
+
+1. **Async by default** — sync is the exception
+2. **Write it down** — decisions, architecture, runbooks, onboarding
+3. **Small PRs, fast reviews** — the collaboration engine
+4. **CI gates** — no "trust me, it works"
+5. **Consistent environments** — Docker eliminated an entire category of problems
+6. **Intentional overlap hours** — not "always available," but reliable windows
+7. **Onboarding as a product** — iterate on it like you iterate on code
 
 ## Conclusion
 
-Managing remote teams requires:
-- **Async-first** communication
-- **Strong documentation** culture
-- **Effective tooling** setup
-- **Clear processes** and guidelines
+Remote engineering isn't "in-office practices over Zoom." It's a different operating system. Async communication. Written decisions. Code review as primary collaboration. Tooling that makes distance irrelevant.
 
-Focus on async communication, documentation, and tooling. The practices shown here enable effective remote engineering teams.
+The teams that struggled after March 2020 tried to replicate the office remotely—endless meetings, implicit knowledge, "quick syncs" that weren't quick across time zones. The teams that thrived built systems where work progressed while people slept.
+
+You don't need perfect tools. You need consistent practices: document decisions, keep PRs small, run CI on everything, and respect that your colleague in another timezone is also a human who wants to log off.
+
+We shipped more after going remote. Not because remote is magic—because we were forced to fix the practices that had been held together by physical proximity. Keep those fixes even when people return to offices. They're just good engineering.
 
 ---
 

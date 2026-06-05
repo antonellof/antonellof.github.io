@@ -4,16 +4,20 @@ title: "React Component Patterns: Composition vs Inheritance"
 date: 2017-02-18
 categories: [Architecture]
 tags: [React, JavaScript, Component Design, Patterns]
-excerpt: "Explore React component composition patterns, higher-order components, render props, and when to use each approach. Learn how to build reusable, maintainable React components."
+excerpt: "I once inherited a React app with a 400-line BaseComponent class. Here's how composition, HOCs, render props, and hooks saved my sanity—and how to pick the right pattern without creating a wrapper hell nightmare."
 ---
 
-React's component model encourages composition over inheritance. After building complex React applications, I've learned that choosing the right pattern makes the difference between maintainable code and a tangled mess. Here are the patterns that work in production.
+# React Component Patterns: Composition vs Inheritance
 
-## Composition Over Inheritance
+I once inherited a React codebase where someone had built a `BaseComponent` class with 400 lines of shared logic. Authentication checks, data fetching, error boundaries, analytics hooks—all crammed into one inheritance tree. Changing one behavior meant praying you didn't break twelve screens you'd never heard of.
 
-React's philosophy: "Composition is more powerful than inheritance." This means building complex UIs by combining simple components rather than extending base classes.
+React's official guidance is blunt: **use composition, not inheritance.** They're not being philosophical. They're trying to save you from the exact mess I walked into.
 
-### Basic Composition
+After building (and refactoring) several production React apps, here's what I've learned about the patterns that actually scale—and the ones that create beautiful diagrams in architecture meetings and beautiful disasters in git blame.
+
+## Composition: The Default Move
+
+React gives you components. You build bigger components from smaller ones. No `extends`, no fragile base classes, no "which method did the child override?"
 
 ```jsx
 // Instead of inheritance
@@ -46,9 +50,13 @@ function App() {
 }
 ```
 
-## Container vs Presentational Components
+The `children` prop is doing the heavy lifting here. Your `Button` doesn't know or care what's inside it—a label, an icon, a loading spinner. That's flexibility inheritance struggles to match without abstract methods and template-method patterns that make everyone miserable.
 
-Separate data logic from presentation:
+Start here. Stay here until you have a specific reason to leave.
+
+## Container vs Presentational: Separate "What" From "How It Looks"
+
+One of the most useful mental models from React's early days: split components into containers (data, state, side effects) and presentational components (pure rendering).
 
 ```jsx
 // Container Component (Smart)
@@ -85,9 +93,19 @@ function UserList({ users, loading }) {
 }
 ```
 
-## Higher-Order Components (HOCs)
+Why bother? Three reasons that mattered in 2017 and still matter now:
 
-HOCs wrap components to add functionality:
+**Testability.** `UserList` is a pure function of props. You can test every visual state—loading, empty, populated—without mocking `fetch`.
+
+**Reusability.** Need the same list UI with data from Redux instead of local state? Swap the container, keep the presentational component.
+
+**Designer collaboration.** "Dumb" components have obvious props. Hand a designer the prop interface and they can reason about what the UI can do without reading your Redux middleware.
+
+The pattern isn't gospel—hooks blurred the container/presentational line—but the *separation of concerns* absolutely is.
+
+## Higher-Order Components: Power With a Side of Wrapper Hell
+
+HOCs wrap a component to inject behavior. Think of them as decorators for React components:
 
 ```jsx
 // HOC for data fetching
@@ -119,7 +137,7 @@ const UserListWithData = withData(
 );
 ```
 
-### Multiple HOCs
+HOCs shine for **cross-cutting concerns**—things every component needs but shouldn't implement itself:
 
 ```jsx
 // HOC for authentication
@@ -158,9 +176,15 @@ function withLogging(WrappedComponent) {
 const EnhancedComponent = withLogging(withAuth(withData(UserList)));
 ```
 
-## Render Props Pattern
+The problem with that last line? **Wrapper hell.** Open React DevTools and you see `withLogging(withAuth(withData(UserList)))` nesting like a Russian doll collection. Debugging props means tracing through four layers. Static analysis tools lose their minds.
 
-Render props pass a function as a prop that returns JSX:
+HOCs also create subtle bugs with prop forwarding—does your HOC pass through `ref`? What about props the wrapped component needs but the HOC doesn't know about?
+
+Use HOCs when you genuinely need to wrap *multiple unrelated components* with the same logic (auth, analytics, error boundaries). Use them sparingly. If you're stacking more than two, pause and ask if a render prop or hook would be clearer.
+
+## Render Props: "Here's My State, You Paint It"
+
+Render props flip the HOC model. Instead of wrapping your component, the parent provides a function that *you* call with state:
 
 ```jsx
 // Data fetching component with render prop
@@ -193,7 +217,11 @@ function App() {
 }
 ```
 
+The caller controls rendering. `DataFetcher` owns the data lifecycle but doesn't dictate what loading looks like. Different screens can show spinners, skeletons, or nothing—same data logic.
+
 ### Children as Function
+
+Same pattern, nicer syntax when it fits:
 
 ```jsx
 // Mouse position tracker
@@ -230,9 +258,13 @@ function App() {
 }
 ```
 
-## Compound Components
+Render props are explicit. You can see exactly what data flows where. The trade-off: JSX gets verbose, and inline render functions can defeat `React.memo` optimizations if you're not careful about referential equality.
 
-Components that work together:
+Reach for render props when the *rendering* needs to vary significantly across consumers, or when you want to avoid HOC wrapper nesting.
+
+## Compound Components: Components That Know Each Other
+
+Sometimes components are meant to work as a set—tabs, accordions, select menus. Compound components share implicit state through React's children API:
 
 ```jsx
 // Tabs component
@@ -277,9 +309,15 @@ function App() {
 }
 ```
 
-## Controlled vs Uncontrolled Components
+The API is elegant—`<Tabs><Tab>...</Tab></Tabs>` reads like HTML. The implementation uses `cloneElement`, which React's team has gently discouraged. Context API (available since React 16.3) is the modern alternative for sharing state among compound children without prop injection magic.
+
+Still, compound components remain the right pattern for UI kits and design systems where you want intuitive, declarative APIs.
+
+## Controlled vs Uncontrolled: Who Owns the Input State?
 
 ### Controlled Components
+
+React owns the value. Every keystroke flows through state:
 
 ```jsx
 class ControlledInput extends React.Component {
@@ -300,7 +338,11 @@ class ControlledInput extends React.Component {
 }
 ```
 
+Controlled inputs are the React default for good reason: you can validate on every keystroke, format values, disable submission when invalid, reset forms programmatically. The cost is more code and slightly more re-renders.
+
 ### Uncontrolled Components
+
+The DOM owns the value. You read it when you need it:
 
 ```jsx
 class UncontrolledInput extends React.Component {
@@ -321,9 +363,13 @@ class UncontrolledInput extends React.Component {
 }
 ```
 
-## Custom Hooks (React 16.8+)
+Uncontrolled is fine for simple forms where you grab values on submit and don't need live validation. File inputs are inherently uncontrolled. Don't fight the DOM on those.
 
-Hooks provide a cleaner alternative to HOCs and render props:
+The classic React mistake: switching between controlled and uncontrolled (toggling between `value={state}` and `value={undefined}`). Pick one model per input and commit.
+
+## Custom Hooks: The Plot Twist (React 16.8+)
+
+I'm writing this in February 2017, and hooks aren't here yet—but they're coming, and they'll change the calculus for everything above. Worth a forward-looking section because this is the pattern that eventually replaced most of our HOCs and render props:
 
 ```jsx
 // Custom hook for data fetching
@@ -366,46 +412,49 @@ function UserList() {
 }
 ```
 
-## When to Use Each Pattern
+No wrapper components. No render prop indentation. Just a function that returns state. The logic is colocated with the component that uses it, composable via plain function calls, and trivially testable in isolation.
 
-### Use HOCs when:
-- Adding cross-cutting concerns (auth, logging, analytics)
-- Need to wrap multiple components with same logic
-- Working with class components
+When hooks land, most of our `withData` HOCs and `DataFetcher` render props will get deleted. Not because those patterns were wrong—they solved real problems in React 15—but because hooks solve the same problems with less ceremony.
 
-### Use Render Props when:
-- Need flexibility in rendering
-- Sharing stateful logic
-- Want explicit control over rendering
+## Choosing a Pattern (Without Overthinking It)
 
-### Use Hooks when:
-- Using functional components
-- Need to share stateful logic
-- Want cleaner, more readable code
+There's no pattern olympics. There's "what makes this codebase easier to change in six months."
 
-### Use Composition when:
-- Building UI from smaller pieces
-- Need flexibility in component structure
-- Creating reusable components
+**Reach for composition** when you're building UI from pieces. This is your default for layout, styling, and structural reuse.
 
-## Best Practices
+**Reach for container/presentational separation** when data fetching and rendering are getting tangled. Even with hooks, the *idea* of separating concerns persists.
 
-1. **Prefer composition** - Build complex components from simple ones
-2. **Keep components focused** - Single responsibility principle
-3. **Use HOCs sparingly** - Can create prop drilling issues
-4. **Document component APIs** - Make props and usage clear
-5. **Test components in isolation** - Easier to test simple components
+**Reach for HOCs** when you need to inject cross-cutting behavior into many unrelated class components—auth guards, analytics, legacy connect() patterns. Go easy on stacking.
 
-## Conclusion
+**Reach for render props** when consumers need full control over rendering and you want to share stateful logic without wrapper nesting. Great for libraries.
 
-React's composition model is powerful:
-- Build complex UIs from simple components
-- Reuse logic with HOCs, render props, or hooks
-- Keep components focused and testable
-- Choose the right pattern for your use case
+**Reach for compound components** when you're building a cohesive UI primitive (tabs, menus, modals) with an intuitive declarative API.
 
-Start with simple composition, then add HOCs or render props when you need to share logic. With React 16.8+, hooks often provide the cleanest solution.
+**Reach for hooks** (once available) when you're in functional components and want to share stateful logic without any of the above ceremony.
+
+If you're debating HOC vs render prop vs hook for the same problem, you're probably fine with any of them. Pick the one your team reads most easily and move on.
+
+## What I'd Tell Past Me
+
+Don't build a `BaseComponent`. Don't stack six HOCs because each one solved one problem in isolation. Don't make every input controlled if you only read values on submit.
+
+Do keep components small and focused—one job per component isn't dogma, it's damage control. Do document your component props (even just JSDoc). Do test presentational components with straightforward prop fixtures.
+
+The pattern you choose matters less than whether a new teammate can understand your component in thirty seconds.
+
+## The Bottom Line
+
+React's component model rewards composition at every level:
+
+- Build complex UIs from simple, focused components
+- Share logic through HOCs, render props, or (soon) hooks—pick based on ergonomics, not ideology
+- Separate data concerns from presentation when they start fighting
+- Controlled inputs by default; uncontrolled when the DOM should win
+
+Start with plain composition. Add abstraction only when you feel the pain of duplication—not when you see a pattern that looks clever in a blog post.
+
+That 400-line `BaseComponent` I inherited? We killed it with a combination of composition, a few targeted HOCs, and render props where rendering flexibility mattered. Six months later, the team was shipping features instead of archaeology expeditions.
 
 ---
 
-*React component patterns from February 2017, covering React 15.x patterns before hooks were introduced.*
+*React component patterns from February 2017, covering React 15.x class components, HOCs, and render props. Hooks (React 16.8+) would arrive the following year and reshape most of this advice—for the better.*

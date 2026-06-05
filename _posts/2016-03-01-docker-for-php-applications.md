@@ -4,24 +4,29 @@ title: "Docker for PHP Applications: A Complete Guide"
 date: 2016-03-01
 categories: [How-To]
 tags: [Docker, PHP, DevOps, Containers]
-excerpt: "Learn how to containerize PHP applications with Docker, including nginx, PHP-FPM, MySQL setup, and development workflows for modern PHP projects."
+excerpt: "I resisted Docker for months, then fixed 'works on my machine' forever — nginx, PHP-FPM, MySQL, and the container setup that actually stuck."
 ---
 
-Docker has revolutionized how we develop and deploy applications. As a PHP developer, I initially resisted containers, thinking they added unnecessary complexity. I was wrong. Docker solved my "works on my machine" problems and made deployments predictable. Here's everything I learned about Dockerizing PHP applications.
+"It works on my machine" is the most expensive sentence in software engineering. I said it. My teammate said it. Production said nothing — it just returned 500s because his PHP had `mcrypt` and mine didn't.
+
+I resisted Docker for months. Containers felt like extra complexity for a problem that "proper documentation" should solve. Then I spent a full day onboarding a new developer through MAMP configuration, extension mismatches, and a MySQL version that handled strict mode differently than staging. Docker fixed that afternoon. Not eventually. That afternoon.
+
+Here's the PHP + Docker setup that became our team default — nginx, PHP-FPM, MySQL, and the workflows that survived past the honeymoon phase.
 
 ## Why Docker for PHP?
 
-Traditional PHP development had pain points:
-- Different PHP versions across environments
-- Missing extensions causing production bugs
-- Complex LAMP/LEMP stack setup
-- Inconsistent development environments across team
+Traditional PHP development accumulates pain quietly:
 
-Docker solves all of this with reproducible containers.
+- PHP 5.6 on one machine, 7.0 on another, 7.1 in staging
+- Extensions compiled differently (or not at all)
+- LAMP/LEMP stacks that take a day to configure correctly
+- "Just apt-get install it" advice that breaks on macOS
+
+Docker doesn't eliminate complexity — it moves it into a file you can version control. `docker-compose up` and everyone runs the same stack. That's the whole pitch, and it delivers.
 
 ## Basic PHP Docker Setup
 
-Let's start with a simple PHP application structure:
+A sensible project structure:
 
 ```
 my-php-app/
@@ -77,6 +82,8 @@ EXPOSE 9000
 CMD ["php-fpm"]
 ```
 
+Pin your base image tag. `php:7.0` today is not `php:7.0` six months from now.
+
 ### Nginx Configuration
 
 ```nginx
@@ -95,7 +102,7 @@ server {
         fastcgi_index index.php;
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        fastcgi_param PATH_INFO $fastcgi_path_info;
+        fastcgi_param PATH_INFO $fastcgi_path_name;
     }
 
     location / {
@@ -104,6 +111,8 @@ server {
     }
 }
 ```
+
+Nginx and PHP-FPM in separate containers is the pattern. One process per container isn't dogma for every case, but nginx + php-fpm genuinely are different services.
 
 ### Docker Compose Configuration
 
@@ -164,9 +173,11 @@ volumes:
     driver: local
 ```
 
+`depends_on` means start order, not "MySQL is ready to accept connections." More on that later.
+
 ## Laravel Docker Setup
 
-For Laravel applications, we need additional services and configuration:
+Laravel needs a few more pieces — Redis, proper permissions on `storage/`, and PHP extensions for typical packages:
 
 ```dockerfile
 # docker/php/Dockerfile for Laravel
@@ -287,7 +298,7 @@ volumes:
 
 ## Development Workflow
 
-### Starting the Application
+The commands you'll run daily:
 
 ```bash
 # Build and start containers
@@ -303,7 +314,7 @@ docker-compose down
 docker-compose down -v
 ```
 
-### Running Commands
+Running application commands inside containers:
 
 ```bash
 # Execute PHP commands
@@ -322,9 +333,11 @@ docker-compose exec php bash
 docker-compose exec mysql mysql -u root -p
 ```
 
+The pattern: your code lives on the host, containers provide the runtime. Edit locally, execute in container.
+
 ## Multi-Stage Builds for Production
 
-Optimize your production images with multi-stage builds:
+Development images are fat. Production images should contain only what's needed to run:
 
 ```dockerfile
 # Build stage
@@ -357,6 +370,8 @@ EXPOSE 9000
 CMD ["php-fpm"]
 ```
 
+Smaller images deploy faster and expose less attack surface.
+
 ## Performance Optimization
 
 ### PHP-FPM Configuration
@@ -381,6 +396,8 @@ request_terminate_timeout = 30s
 catch_workers_output = yes
 ```
 
+Tune `pm.max_children` based on available memory. Each PHP-FPM child consumes RAM; too many children and you OOM the container.
+
 ### PHP Configuration
 
 ```ini
@@ -400,9 +417,11 @@ opcache.revalidate_freq = 60
 opcache.fast_shutdown = 1
 ```
 
+Enable OPcache in production. Running PHP without it is leaving performance on the table.
+
 ## Docker Compose for Different Environments
 
-### Development
+Override files keep environment differences explicit:
 
 ```yaml
 # docker-compose.dev.yml
@@ -417,8 +436,6 @@ services:
       - ./:/var/www:cached  # Faster on macOS
 ```
 
-### Production
-
 ```yaml
 # docker-compose.prod.yml
 version: '3'
@@ -431,8 +448,6 @@ services:
     # No volumes - use built-in code
 ```
 
-Usage:
-
 ```bash
 # Development
 docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
@@ -443,7 +458,7 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
 
 ## Debugging with Xdebug
 
-Add Xdebug to your development Dockerfile:
+Add Xdebug to your development Dockerfile only — never production:
 
 ```dockerfile
 # Install Xdebug
@@ -456,9 +471,13 @@ RUN echo "xdebug.remote_enable=1" >> /usr/local/etc/php/conf.d/docker-php-ext-xd
     && echo "xdebug.remote_port=9001" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
 ```
 
+Step debugging inside containers feels magical the first time it works. It feels frustrating the first three times it doesn't.
+
 ## Common Issues and Solutions
 
 ### Permission Issues
+
+Laravel's `storage/` and `bootstrap/cache/` need write access:
 
 ```bash
 # Fix permission issues on Linux
@@ -468,16 +487,18 @@ docker-compose exec php chmod -R 775 /var/www/storage
 
 ### Slow Performance on macOS
 
-Use cached or delegated volumes:
+Docker on macOS volume mounts are notoriously slow. Use cached mounts:
 
 ```yaml
 volumes:
   - ./:/var/www:cached
 ```
 
+Or sync only specific directories. Your mileage varies by project size.
+
 ### Container Can't Connect to MySQL
 
-Wait for MySQL to be ready:
+MySQL takes seconds to initialize. `depends_on` doesn't wait for readiness:
 
 ```bash
 # Install wait-for-it script
@@ -487,51 +508,35 @@ COPY wait-for-it.sh /usr/local/bin/
 CMD ["wait-for-it", "mysql:3306", "--", "php-fpm"]
 ```
 
-## Best Practices
+## Practices That Actually Help
 
-1. **Use .dockerignore**
-   ```
-   .git
-   .env
-   vendor/
-   node_modules/
-   storage/
-   *.md
-   ```
+Use a `.dockerignore` — don't send `vendor/`, `node_modules/`, and `.git` to the build context:
 
-2. **Keep containers single-purpose**
-   - One service per container
-   - Nginx in one, PHP in another
+```
+.git
+.env
+vendor/
+node_modules/
+storage/
+*.md
+```
 
-3. **Use specific image tags**
-   ```dockerfile
-   FROM php:7.0.33-fpm-alpine  # Not just php:7.0
-   ```
+Keep containers single-purpose. Pin image tags. Don't run as root in production. Add health checks so orchestrators know when a container is actually ready:
 
-4. **Don't run as root**
-   ```dockerfile
-   USER www-data
-   ```
+```yaml
+healthcheck:
+  test: ["CMD", "php-fpm-healthcheck"]
+  interval: 30s
+  timeout: 3s
+  retries: 3
+```
 
-5. **Use health checks**
-   ```yaml
-   healthcheck:
-     test: ["CMD", "php-fpm-healthcheck"]
-     interval: 30s
-     timeout: 3s
-     retries: 3
-   ```
+## Wrapping Up
 
-## Conclusion
+Docker didn't just fix "works on my machine." It made onboarding a `git clone && docker-compose up` instead of a day of environment archaeology. Deployments became predictable because production ran the same image we tested locally.
 
-Docker transforms PHP development by providing:
-- Consistent environments across team
-- Easy onboarding for new developers
-- Predictable deployments
-- Better resource utilization
-
-Start simple with docker-compose, then evolve your setup as you learn. The initial time investment pays off quickly in reduced "environment issues" and faster deployments.
+Start with a simple docker-compose setup — nginx, PHP-FPM, MySQL. Add Redis, multi-stage builds, and environment overrides as you need them. The initial time investment pays back quickly in fewer environment fires and faster team velocity.
 
 ---
 
-*This guide uses Docker 1.13 and PHP 7.0, reflecting the ecosystem in early 2016.*
+*This guide uses Docker 1.13 and PHP 7.0, reflecting the ecosystem in early 2016. Modern Docker Compose, PHP 8.x, and Laravel Sail have improved ergonomics significantly — but the nginx + PHP-FPM separation pattern remains the foundation.*

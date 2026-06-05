@@ -4,25 +4,22 @@ title: "Advanced Kubernetes: Custom Resources and Operators"
 date: 2021-01-02
 categories: [Deep Dive]
 tags: [Kubernetes, CRD, Operators]
-excerpt: "Extend Kubernetes with Custom Resource Definitions (CRDs) and operators. Learn how to create custom resources, build operators, and automate Kubernetes operations."
+excerpt: "kubectl apply -f database.yaml and get a running PostgreSQL instance—that's what operators do. CRDs extend Kubernetes' API with your domain, and operators make it actually work."
 ---
 
-Kubernetes Custom Resources extend the API. After building production operators, here's how to create CRDs and operators effectively.
+I watched a platform engineer manually provision databases for the third time that week. Copy Deployment YAML. Adjust environment variables. Create PVC. Set up Service. Wait. Repeat for Redis. Repeat for RabbitMQ. Same steps, different values, error-prone and boring.
 
-## What are Custom Resources?
+"We should automate this," someone said. Shell scripts worked until they didn't—no status tracking, no self-healing, no lifecycle management when someone deleted a resource.
 
-Custom Resources:
-- **Extend** Kubernetes API
-- **Custom objects** - Domain-specific
-- **Operators** - Automation logic
-- **Declarative** - Desired state
+Custom Resource Definitions (CRDs) and operators are Kubernetes' answer: **extend the API with your domain concepts, then encode operational knowledge in a controller that reconciles desired state with actual state.**
 
-## Custom Resource Definition
+Instead of `kubectl apply -f postgres-deployment.yaml`, you write `kubectl apply -f database.yaml` with `kind: Database`. The operator handles the rest. It's the pattern behind Prometheus, Istio, and every managed-database operator you've used.
 
-### Basic CRD
+## Custom Resources: Your API, Kubernetes' Machinery
+
+Kubernetes stores everything as resources (Pods, Deployments, Services). CRDs let you define new resource types:
 
 ```yaml
-# crd.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -54,6 +51,8 @@ spec:
                 type: string
               message:
                 type: string
+              ready:
+                type: boolean
   scope: Namespaced
   names:
     plural: databases
@@ -61,18 +60,16 @@ spec:
     kind: Database
 ```
 
-### Create CRD
+Apply the CRD, and `Database` becomes a first-class Kubernetes resource:
 
 ```bash
 kubectl apply -f crd.yaml
+kubectl get databases  # It works
 ```
 
-## Custom Resource Instance
-
-### Create Resource
+### Creating Instances
 
 ```yaml
-# database-instance.yaml
 apiVersion: example.com/v1
 kind: Database
 metadata:
@@ -86,44 +83,28 @@ spec:
 ```bash
 kubectl apply -f database-instance.yaml
 kubectl get databases
+# NAME          AGE
+# my-database   5s
 ```
 
-## Operator Pattern
+Without an operator, this does nothing useful—Kubernetes stores the YAML and waits. The operator is what makes it real.
 
-### Operator Components
+## The Operator Pattern: Reconciliation Loop
 
-1. **Controller** - Watches resources
-2. **Reconciler** - Ensures desired state
-3. **Finalizer** - Cleanup logic
+An operator watches custom resources and takes action to match desired state:
 
-### Operator Implementation (Go)
+1. **Watch** — observe Database resources (create, update, delete)
+2. **Reconcile** — compare desired spec vs actual cluster state
+3. **Act** — create/update/delete Deployments, Services, PVCs
+4. **Update status** — report phase (Creating, Ready, Failed)
 
 ```go
-package main
-
-import (
-    "context"
-    "fmt"
-    
-    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-    "k8s.io/apimachinery/pkg/runtime"
-    "sigs.k8s.io/controller-runtime/pkg/client"
-    "sigs.k8s.io/controller-runtime/pkg/controller"
-    "sigs.k8s.io/controller-runtime/pkg/manager"
-)
-
-type DatabaseReconciler struct {
-    client.Client
-    Scheme *runtime.Scheme
-}
-
 func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
     var db examplev1.Database
     if err := r.Get(ctx, req.NamespacedName, &db); err != nil {
         return ctrl.Result{}, client.IgnoreNotFound(err)
     }
     
-    // Reconcile logic
     if db.Status.Phase == "" {
         db.Status.Phase = "Creating"
         if err := r.Status().Update(ctx, &db); err != nil {
@@ -131,21 +112,19 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
         }
     }
     
-    // Create database instance
     if err := r.createDatabase(ctx, &db); err != nil {
+        db.Status.Phase = "Failed"
+        db.Status.Message = err.Error()
+        r.Status().Update(ctx, &db)
         return ctrl.Result{}, err
     }
     
     db.Status.Phase = "Ready"
-    if err := r.Status().Update(ctx, &db); err != nil {
-        return ctrl.Result{}, err
-    }
-    
-    return ctrl.Result{}, nil
+    db.Status.Ready = true
+    return ctrl.Result{}, r.Status().Update(ctx, &db)
 }
 
 func (r *DatabaseReconciler) createDatabase(ctx context.Context, db *examplev1.Database) error {
-    // Create PostgreSQL instance
     deployment := &appsv1.Deployment{
         ObjectMeta: metav1.ObjectMeta{
             Name:      db.Name,
@@ -161,16 +140,14 @@ func (r *DatabaseReconciler) createDatabase(ctx context.Context, db *examplev1.D
                     Labels: map[string]string{"app": db.Name},
                 },
                 Spec: corev1.PodSpec{
-                    Containers: []corev1.Container{
-                        {
-                            Name:  "postgres",
-                            Image: "postgres:13",
-                            Env: []corev1.EnvVar{
-                                {Name: "POSTGRES_DB", Value: db.Spec.DatabaseName},
-                                {Name: "POSTGRES_USER", Value: db.Spec.DatabaseUser},
-                            },
+                    Containers: []corev1.Container{{
+                        Name:  "postgres",
+                        Image: "postgres:13",
+                        Env: []corev1.EnvVar{
+                            {Name: "POSTGRES_DB", Value: db.Spec.DatabaseName},
+                            {Name: "POSTGRES_USER", Value: db.Spec.DatabaseUser},
                         },
-                    },
+                    }},
                 },
             },
         },
@@ -178,134 +155,105 @@ func (r *DatabaseReconciler) createDatabase(ctx context.Context, db *examplev1.D
     
     return r.Create(ctx, deployment)
 }
-
-func main() {
-    mgr, err := manager.New(cfg, manager.Options{})
-    if err != nil {
-        panic(err)
-    }
-    
-    if err = (&DatabaseReconciler{
-        Client: mgr.GetClient(),
-        Scheme: mgr.GetScheme(),
-    }).SetupWithManager(mgr); err != nil {
-        panic(err)
-    }
-    
-    if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-        panic(err)
-    }
-}
 ```
 
-## Operator SDK
+The reconcile loop runs continuously. Delete the Deployment manually? Operator recreates it. Change `size` from small to medium? Operator adjusts resources. This is Kubernetes' superpower—**declarative state with automatic correction**.
 
-### Install Operator SDK
+## Operator SDK: Don't Start From Scratch
 
 ```bash
-# Install
+# Install Operator SDK
 curl -LO https://github.com/operator-framework/operator-sdk/releases/download/v1.28.0/operator-sdk_linux_amd64
-chmod +x operator-sdk
-sudo mv operator-sdk /usr/local/bin/
-```
+chmod +x operator-sdk && sudo mv operator-sdk /usr/local/bin/
 
-### Create Operator
-
-```bash
-# Create new operator
+# Scaffold a new operator
 operator-sdk init --domain example.com --repo github.com/example/database-operator
-
-# Create API
 operator-sdk create api --group example --version v1 --kind Database --resource --controller
 
-# Generate code
 make generate
 make manifests
 ```
 
-## Status Updates
+The SDK generates CRD manifests, Go types, controller boilerplate, and RBAC rules. You fill in reconciliation logic. [Kubebuilder](https://book.kubebuilder.io/) (which powers the SDK) is the standard toolchain.
 
-### Update Status
+## Status Updates: Tell Users What's Happening
 
 ```go
-func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-    var db examplev1.Database
-    if err := r.Get(ctx, req.NamespacedName, &db); err != nil {
-        return ctrl.Result{}, err
-    }
-    
-    // Update status
-    db.Status.Phase = "Ready"
-    db.Status.Message = "Database is ready"
-    db.Status.Ready = true
-    
-    if err := r.Status().Update(ctx, &db); err != nil {
-        return ctrl.Result{}, err
-    }
-    
-    return ctrl.Result{}, nil
-}
+db.Status.Phase = "Ready"
+db.Status.Message = "Database is ready"
+db.Status.Ready = true
+r.Status().Update(ctx, &db)
 ```
 
-## Finalizers
+Users run `kubectl get databases` and see status. Without status updates, they're kubectl-describing Pods wondering why nothing works. Status is your UX.
 
-### Add Finalizer
+## Finalizers: Clean Cleanup
+
+When someone deletes a Database, you need to clean up PVCs, backups, external resources:
 
 ```go
+const finalizerName = "database.example.com/finalizer"
+
 func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
     var db examplev1.Database
     if err := r.Get(ctx, req.NamespacedName, &db); err != nil {
         return ctrl.Result{}, err
     }
     
-    // Add finalizer if not present
-    if !containsString(db.ObjectMeta.Finalizers, finalizerName) {
-        db.ObjectMeta.Finalizers = append(db.ObjectMeta.Finalizers, finalizerName)
-        if err := r.Update(ctx, &db); err != nil {
-            return ctrl.Result{}, err
-        }
+    if !containsString(db.Finalizers, finalizerName) {
+        db.Finalizers = append(db.Finalizers, finalizerName)
+        return ctrl.Result{}, r.Update(ctx, &db)
     }
     
-    // Handle deletion
-    if db.ObjectMeta.DeletionTimestamp.IsZero() {
-        // Normal reconcile
-    } else {
-        // Cleanup
+    if !db.DeletionTimestamp.IsZero() {
         if err := r.cleanup(ctx, &db); err != nil {
             return ctrl.Result{}, err
         }
-        
-        // Remove finalizer
-        db.ObjectMeta.Finalizers = removeString(db.ObjectMeta.Finalizers, finalizerName)
-        if err := r.Update(ctx, &db); err != nil {
-            return ctrl.Result{}, err
-        }
+        db.Finalizers = removeString(db.Finalizers, finalizerName)
+        return ctrl.Result{}, r.Update(ctx, &db)
     }
     
+    // Normal reconciliation...
     return ctrl.Result{}, nil
 }
 ```
 
-## Best Practices
+Without finalizers, `kubectl delete database` removes the CR but leaves orphaned Deployments and PVCs. Finalizers block deletion until cleanup completes.
 
-1. **Idempotent operations** - Safe retries
-2. **Status updates** - Reflect current state
-3. **Finalizers** - Cleanup resources
-4. **Error handling** - Graceful failures
-5. **Logging** - Debug information
-6. **Testing** - Unit and integration tests
-7. **Documentation** - Clear usage
-8. **Versioning** - CRD versions
+## Production Lessons
+
+1. **Idempotent reconciliation** — running twice produces the same result
+2. **Owner references** — child resources (Deployments) owned by parent (Database) for garbage collection
+3. **RBAC** — operator ServiceAccount with minimal required permissions
+4. **Leader election** — multiple operator replicas, only one reconciles
+5. **Webhook validation** — reject invalid specs before they reach reconciliation
+6. **Version your CRDs** — `v1alpha1` → `v1beta1` → `v1` with conversion webhooks
+7. **Test with envtest** — unit test controllers without a real cluster
+
+## When to Build an Operator
+
+**Build an operator when:**
+- You deploy the same complex application repeatedly
+- Operational knowledge is tribal ("ask Dave how to set up Redis")
+- You need day-2 operations (backup, upgrade, scaling) automated
+- Platform team wants self-service for product teams
+
+**Skip the operator when:**
+- It's a one-off deployment (Helm chart is enough)
+- The application doesn't need lifecycle management
+- Nobody on the team knows Go (operators are typically Go)
+
+Helm installs. Operators manage. Different tools, different problems.
 
 ## Conclusion
 
-Custom Resources and Operators enable:
-- Kubernetes API extension
-- Domain-specific abstractions
-- Automation
-- Declarative operations
+CRDs extend Kubernetes' API with your domain language. Operators encode operational expertise into software that runs 24/7. Together, they turn "ask platform team to provision a database" into "apply a YAML file and wait for Ready status."
 
-Start with simple CRDs, then build operators. The patterns shown here handle production workloads.
+The manual database provisioning that started this post became `kubectl apply -f database.yaml`. Product teams self-served. Platform team wrote the operator once and maintained it instead of doing the same manual steps weekly.
+
+Start with a simple CRD and a controller that creates one Deployment. Add status, finalizers, and cleanup incrementally. Use Operator SDK. Read existing operators ([postgres-operator](https://github.com/zalando/postgres-operator), [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)) for patterns.
+
+Kubernetes' power is declarative infrastructure. CRDs and operators let you declare *your* infrastructure—not just Pods and Services, but Databases, Queues, and Pipelines. That's platform engineering.
 
 ---
 

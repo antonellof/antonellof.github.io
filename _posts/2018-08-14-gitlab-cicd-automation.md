@@ -4,14 +4,18 @@ title: "GitLab CI/CD: Automating Your Deployment Pipeline"
 date: 2018-08-14
 categories: [How-To]
 tags: [GitLab, CI/CD, DevOps, Automation]
-excerpt: "Set up GitLab CI/CD pipelines for automated testing, building, and deployment. Learn pipeline configuration, stages, jobs, and deployment strategies."
+excerpt: "We used to deploy by SSH-ing into a server and hoping. GitLab CI/CD turned that ritual into a pipeline — here's the .gitlab-ci.yml setup that actually survived production."
 ---
 
-GitLab CI/CD provides powerful automation for testing, building, and deploying applications. After setting up production pipelines, here's how to configure effective CI/CD workflows.
+There was a time when "deployment" meant someone ran `./deploy.sh` on a server while everyone else held their breath in Slack. Tests? Sometimes. Rollback plan? "Revert the commit and pray."
 
-## GitLab CI/CD Basics
+Then we moved to GitLab CI/CD, and the bar shifted from "did it deploy?" to "did the pipeline go green?" That single `.gitlab-ci.yml` file in the repo became the contract: every merge request gets validated, every main-branch build is reproducible, and production deploys require a human click — not a human typing credentials into a terminal at midnight.
 
-### `.gitlab-ci.yml` Configuration
+This is the setup we evolved over several projects in 2018. Nothing exotic — just pipelines that teams actually maintain six months later.
+
+## The Minimum Viable Pipeline
+
+Before you add canary deployments and parallel matrix builds across three Node versions, start here. Build, test, deploy — three stages, one YAML file, zero mystery.
 
 ```yaml
 # .gitlab-ci.yml
@@ -57,9 +61,11 @@ deploy:
   when: manual
 ```
 
-## Pipeline Stages
+Notice `when: manual` on production deploy. Automation is great; **automatic production deploys on every green build** is how you learn what "rollback" really means at 4 PM on a Friday.
 
-### Multi-Stage Pipeline
+## Growing Up: A Pipeline That Matches Real Teams
+
+Once the basics work, you'll want validation before build, security scanning before deploy, and separate staging from production environments. This is the shape we settled on:
 
 ```yaml
 stages:
@@ -170,7 +176,11 @@ deploy:production:
     - test
 ```
 
-## Docker Build and Push
+The `environment` blocks aren't just labels — they give you deployment history in GitLab's UI, which becomes invaluable when someone asks "what's running in prod right now?" (It happens more than you'd think.)
+
+## Docker: Build Once, Tag Twice, Push to Registry
+
+If you're containerized, the build stage should produce an image tagged with `$CI_COMMIT_SHA` (immutable, traceable) and `:latest` (convenient, slightly dangerous). Push both to GitLab's container registry so deploy jobs reference a known artifact, not "whatever was on the runner."
 
 ```yaml
 build:docker:
@@ -190,9 +200,13 @@ build:docker:
     - develop
 ```
 
-## Testing Jobs
+**Pro tip:** `$CI_COMMIT_SHA` in the image tag means you can always trace a running container back to an exact commit. When prod breaks, "what changed?" becomes a git log, not archaeology.
 
-### Unit Tests
+## Testing: Split by Speed and Confidence
+
+One giant `npm test` job feels simple until it takes 20 minutes and developers start pushing with `[skip ci]`. Split tests by what they're proving:
+
+### Unit Tests — Fast Feedback
 
 ```yaml
 test:unit:
@@ -210,7 +224,7 @@ test:unit:
     expire_in: 30 days
 ```
 
-### Integration Tests
+### Integration Tests — Real Dependencies
 
 ```yaml
 test:integration:
@@ -231,7 +245,9 @@ test:integration:
     - build
 ```
 
-### E2E Tests
+GitLab's `services` spin up sidecar containers — Postgres and Redis on the same network as your test job. No shared staging database getting corrupted by parallel pipelines.
+
+### E2E Tests — Slow, Valuable, Screenshot Evidence
 
 ```yaml
 test:e2e:
@@ -248,7 +264,11 @@ test:e2e:
     expire_in: 1 week
 ```
 
-## Conditional Execution
+`when: always` on artifacts is crucial. When E2E fails, you want screenshots — not a job log that says "element not found" with zero context.
+
+## Conditional Execution: Run Less, Merge Faster
+
+Not every commit needs the full pipeline. Docs-only changes shouldn't trigger a 15-minute E2E suite.
 
 ```yaml
 # Run only on merge requests
@@ -288,7 +308,11 @@ build:
       - "package.json"
 ```
 
-## Parallel Jobs
+We learned the hard way that overly aggressive `only/except` rules cause "works on my branch, broke on main" surprises. Use path filters for obvious wins (markdown, assets); keep core test stages on main protected.
+
+## Parallel Jobs: Matrix Builds Without the Headache
+
+Need to verify Node 12, 14, and 16 compatibility? GitLab's parallel matrix runs the same job with different variables:
 
 ```yaml
 test:parallel:
@@ -303,9 +327,13 @@ test:parallel:
     - npm test
 ```
 
-## Deployment Strategies
+Fair warning: matrix builds multiply runner minutes. Use them where version compatibility actually matters, not "because we can."
 
-### Blue-Green Deployment
+## Deployment Strategies That Don't Bet the Company
+
+### Blue-Green: Two Environments, One Switch
+
+Deploy to the inactive environment, verify health, flip traffic. If green is sick, blue is still serving.
 
 ```yaml
 deploy:blue-green:
@@ -337,7 +365,9 @@ deploy:blue-green:
     - main
 ```
 
-### Canary Deployment
+### Canary: Trust, But Verify With Metrics
+
+Roll out to 10% of traffic, watch error rates, expand or abort. This is the "we're reasonably confident but not suicidal" strategy.
 
 ```yaml
 deploy:canary:
@@ -372,7 +402,11 @@ deploy:canary:
       fi
 ```
 
-## Kubernetes Deployment
+The `sleep 300` blocks are simplified — in production you'd poll metrics with a timeout and clear abort criteria. But the shape is right: deploy small, measure, then commit.
+
+## Kubernetes Deploys From CI
+
+If you're on K8s, the deploy job is often just "update the image and wait for rollout":
 
 ```yaml
 deploy:k8s:
@@ -388,7 +422,11 @@ deploy:k8s:
     - main
 ```
 
-## Environment Variables
+Store `KUBE_CONTEXT` and kubeconfig as protected CI variables. Never commit credentials — GitLab's variable masking exists for a reason.
+
+## Secrets, Caching, and Artifacts: The Plumbing That Matters
+
+**Environment variables** belong in GitLab CI/CD Settings → Variables, marked protected and masked for anything sensitive:
 
 ```yaml
 # Set in GitLab CI/CD Settings > Variables
@@ -406,7 +444,7 @@ deploy:
     url: https://example.com
 ```
 
-## Caching
+**Caching** turns 8-minute `npm ci` runs into 2-minute ones. Cache per branch slug so feature branches don't pollute each other:
 
 ```yaml
 cache:
@@ -428,7 +466,7 @@ build:
     policy: pull-push
 ```
 
-## Artifacts
+**Artifacts** pass build output between stages without rebuilding:
 
 ```yaml
 build:
@@ -451,27 +489,20 @@ deploy:
     - build
 ```
 
-## Best Practices
+Set job timeouts on anything that touches Docker or E2E — a hung `docker:dind` job will consume a runner until someone notices.
 
-1. **Use stages** - Organize pipeline logically
-2. **Cache dependencies** - Speed up builds
-3. **Run tests in parallel** - Faster feedback
-4. **Use artifacts** - Pass data between jobs
-5. **Set timeouts** - Prevent hanging jobs
-6. **Use manual deployments** - Control production
-7. **Monitor pipelines** - Track success rates
-8. **Keep secrets secure** - Use CI/CD variables
+## What Actually Makes Pipelines Survive
 
-## Conclusion
+The teams whose pipelines still work a year later share a few habits. Stages mirror the development flow — validate before build, test before deploy — not arbitrary alphabet soup. Dependencies get cached aggressively; secrets never touch the repo. Production deploys stay manual or gated until you're confident in rollback. Pipeline failures get the same respect as production incidents — a red main branch is a blocked team.
 
-GitLab CI/CD enables:
-- Automated testing
-- Consistent deployments
-- Faster feedback
-- Reliable releases
+Start with build → test → deploy. Add complexity when pain demands it, not when a blog post (even this one) suggests it.
 
-Start with simple pipelines, then add complexity. The patterns shown here handle production deployments.
+## The Bottom Line
+
+GitLab CI/CD turned deployment from a ritual into a repeatable process. Your `.gitlab-ci.yml` is documentation that actually runs — every merge request proves the code works, every production deploy traces to a commit SHA, and nobody SSHs into servers at midnight unless something has gone very wrong.
+
+That's the goal: boring deploys. The exciting ones are the ones you read about on Hacker News, not the ones you live through.
 
 ---
 
-*GitLab CI/CD automation from August 2018, covering GitLab 11.0+ features.*
+*Written August 2018, covering GitLab 11.0+ CI/CD features. GitLab's syntax and runner images have evolved since — check the current docs for `rules` vs `only/except` and updated Node LTS versions.*

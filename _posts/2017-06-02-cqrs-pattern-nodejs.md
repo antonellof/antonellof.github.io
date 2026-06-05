@@ -4,23 +4,40 @@ title: "CQRS Pattern in Node.js: Separating Reads and Writes"
 date: 2017-06-02
 categories: [Architecture]
 tags: [CQRS, Node.js, Architecture, Design Patterns]
-excerpt: "Implementing Command Query Responsibility Segregation (CQRS) in Node.js applications, separating read and write models for better scalability and performance."
+excerpt: "Our read endpoints were drowning while writes barely ticked. CQRS sounded like enterprise architecture cosplay—until we separated read and write models and everything got faster."
 ---
 
-CQRS (Command Query Responsibility Segregation) separates read and write operations into different models. After implementing CQRS in a high-traffic Node.js application, I learned it's not just an academic pattern—it solves real scalability problems.
+# CQRS Pattern in Node.js: Separating Reads and Writes
 
-## What is CQRS?
+The dashboard loaded in four seconds. Creating a new record took 80 milliseconds.
 
-CQRS separates:
-- **Commands**: Write operations that change state
-- **Queries**: Read operations that return data
+Read that again. Our *reads* were slow. Our *writes* were fast. Every instinct from traditional CRUD development said this was backwards—you optimize writes, reads are easy.
+
+Except we had a social analytics product where users refreshed dashboards constantly (reads) but created campaigns occasionally (writes). The read load was 50:1. Our single PostgreSQL schema—normalized, indexed, perfectly sensible—was getting hammered by complex JOIN queries that writes never triggered.
+
+CQRS—Command Query Responsibility Segregation—sounded like something a consultant would charge $40,000 to explain. Then I implemented it in a Node.js service and our dashboard load time dropped to 400ms.
+
+Not magic. Just acknowledging that reads and writes have different needs, and pretending otherwise was costing us money.
+
+## What CQRS Actually Means
+
+The name is the definition:
+
+- **Commands** change state (create user, place order, update profile)
+- **Queries** return data (get user, list orders, fetch dashboard)
+
+In traditional architecture, one model serves both:
 
 ```
 Traditional:
 ┌─────────────┐
 │   Service   │─── Reads & Writes
 └─────────────┘
+```
 
+In CQRS, you split them:
+
+```
 CQRS:
 ┌─────────────┐     ┌─────────────┐
 │  Command    │     │   Query     │
@@ -28,17 +45,30 @@ CQRS:
 └─────────────┘     └─────────────┘
 ```
 
-## Why CQRS?
+"Segregation" is the important word. Not duplication for its own sake—*optimization* for different access patterns.
 
-Benefits:
-- **Independent scaling**: Scale reads and writes separately
-- **Optimized models**: Different data structures for reads vs writes
-- **Performance**: Read models can be denormalized
-- **Complexity**: Handle complex business logic in commands
+## Why Bother?
+
+The benefits we actually got:
+
+- **Independent scaling** — Scale read replicas without touching write infrastructure
+- **Optimized models** — Write model stays normalized; read model gets denormalized for speed
+- **Performance** — Dashboard queries hit pre-computed data instead of JOINing six tables
+- **Complexity management** — Business rules live in command handlers, not scattered across controllers
+
+The costs we accepted:
+
+- **Eventual consistency** — Read model might be seconds behind writes
+- **More moving parts** — Projections, event handlers, sync monitoring
+- **Cognitive overhead** — "Which model do I use?" becomes a real question
+
+CQRS isn't free. It's a trade. We took it because our read bottleneck was killing user experience.
 
 ## Basic Implementation
 
-### Command Side
+### Command Side (Writes)
+
+Commands are intentions, not data bags. They carry validation and business logic:
 
 ```javascript
 // commands/createUser.js
@@ -86,7 +116,11 @@ class CreateUserHandler {
 }
 ```
 
-### Query Side
+The command handler owns validation, business rules, and persistence. It publishes events so the read side can catch up. It does *not* return a fully hydrated user profile with denormalized stats—that's the query side's job.
+
+### Query Side (Reads)
+
+Queries are read-only. No side effects. No events. Just data retrieval optimized for the question being asked:
 
 ```javascript
 // queries/getUserById.js
@@ -120,9 +154,11 @@ class GetUserByIdHandler {
 }
 ```
 
-## Event Sourcing Integration
+The read model includes `profile` data that might come from three tables in the write model—pre-joined, pre-computed, ready to serve.
 
-CQRS often pairs with Event Sourcing:
+## Event Sourcing: CQRS's Optional Gym Membership
+
+CQRS pairs naturally with Event Sourcing—storing state changes as events rather than overwriting rows. You don't *need* event sourcing for CQRS, but they complement each other:
 
 ```javascript
 // events/userCreated.js
@@ -185,9 +221,13 @@ class CreateUserHandler {
 }
 ```
 
+Events are the source of truth. Current state is derived by replaying events (or by projections that maintain read models incrementally).
+
+We used event sourcing for audit-sensitive operations—order history, campaign changes. Simple CRUD entities used CQRS without full event sourcing. You don't need the full stack on day one.
+
 ## Read Model Projections
 
-Build read models from events:
+Projections listen for events and update read models:
 
 ```javascript
 // projections/userProjection.js
@@ -232,9 +272,13 @@ class UserProjection {
 }
 ```
 
-## Mediator Pattern
+Projections must be idempotent. Events can be delivered more than once. Design handlers that can safely replay.
 
-Use a mediator to route commands and queries:
+Monitor projection lag. If your read model is five minutes behind, users notice—even if your architecture diagram is beautiful.
+
+## The Mediator: Routing Commands and Queries
+
+A mediator keeps your Express routes from becoming a switch statement the length of a novel:
 
 ```javascript
 // mediator.js
@@ -286,7 +330,9 @@ const user = await mediator.send(
 );
 ```
 
-## Express.js Integration
+POST routes send commands. GET routes send queries. The route doesn't know about databases—it knows about intentions.
+
+## Express Integration
 
 ```javascript
 // routes/users.js
@@ -318,9 +364,11 @@ router.get('/users/:id', async (req, res, next) => {
 module.exports = router;
 ```
 
-## Denormalized Read Models
+Clean separation at the HTTP layer too. POST mutates. GET reads. If you're tempted to add a side effect to a GET handler, that's your architecture trying to warn you.
 
-Optimize reads with denormalized data:
+## Denormalized Read Models: Where the Speed Lives
+
+The write model stays normalized—data integrity, foreign keys, the comfortable world you know:
 
 ```javascript
 // Write model (normalized)
@@ -329,7 +377,11 @@ Optimize reads with denormalized data:
     name: 'John',
     email: 'john@example.com'
 }
+```
 
+The read model gets fat with pre-computed data:
+
+```javascript
 // Read model (denormalized)
 {
     id: '123',
@@ -355,7 +407,13 @@ class UserStatsProjection {
 }
 ```
 
-## CQRS with MongoDB
+That dashboard that took four seconds? It was JOINing users, orders, and analytics tables on every request. The denormalized read model answered the same question with a single document lookup.
+
+Yes, `orderCount` might be stale for a few hundred milliseconds. For a dashboard, that's fine. For a bank balance, it wouldn't be. Know your consistency requirements.
+
+## CQRS With MongoDB
+
+MongoDB's document model makes CQRS feel natural—separate collections for write and read models:
 
 ```javascript
 // Write model (MongoDB)
@@ -400,38 +458,57 @@ class UserReadRepository {
 }
 ```
 
-## When to Use CQRS
+Index the read model for the queries you actually run. The write model indexes for integrity and write performance. Different access patterns, different indexes.
+
+## When CQRS Is Worth It (And When It's Not)
 
 **Good fit:**
-- High read/write ratio
-- Complex business logic
+- High read-to-write ratio (dashboards, analytics, social feeds)
+- Complex business logic on writes that shouldn't slow reads
 - Need to scale reads independently
-- Different data models for reads vs writes
+- Different data shapes for commands vs queries
 
-**Not a good fit:**
-- Simple CRUD applications
-- Low traffic applications
-- Tight consistency requirements
-- Small team/simple domain
+**Bad fit:**
+- Simple CRUD with balanced read/write
+- Low traffic where a single Postgres instance is fine
+- Strong consistency requirements everywhere (banking transfers, inventory counts)
+- Small team that can't maintain projections and monitoring
 
-## Best Practices
+The honest test: **is read performance actually your bottleneck?** If not, CQRS adds complexity without benefit. Profile first. Architect second.
 
-1. **Start simple** - Don't over-engineer
-2. **Use events** - Decouple command and query sides
-3. **Handle eventual consistency** - Reads may be slightly stale
-4. **Monitor projections** - Ensure read models stay in sync
-5. **Version events** - Handle schema changes over time
+## Lessons From Production
 
-## Conclusion
+**Start simple.** We began with CQRS on one aggregate (users)—not the entire domain. One command handler, one query handler, one projection. Prove the model before spreading it.
 
-CQRS provides:
+**Use events to decouple.** Synchronous read model updates work for low traffic. Events scale better and survive failures more gracefully.
+
+**Embrace eventual consistency.** Tell users the dashboard might lag by a second. Design UI that doesn't pretend otherwise. Fighting eventual consistency with synchronous updates defeats the purpose.
+
+**Monitor projections.** Alert on lag. Build rebuild scripts. Projections *will* break; plan for recovery.
+
+**Version events.** `UserCreatedV1` and `UserCreatedV2` can coexist. Your event schema will change. Plan for it before you're deserializing JSON with missing fields at 2 AM.
+
+## The Bottom Line
+
+CQRS isn't academic architecture. It's a practical response to a specific problem: reads and writes have different performance profiles, and pretending they don't forces compromises that hurt users.
+
+What we gained:
+
 - Independent scaling of reads and writes
-- Optimized data models
-- Better performance for read-heavy workloads
-- Clear separation of concerns
+- Dashboard queries that went from seconds to milliseconds
+- Clear separation—business logic in commands, presentation data in queries
+- A path to event sourcing where audit trails mattered
 
-Start with simple CQRS, add event sourcing if needed. The pattern shown here handles millions of operations in production.
+What we paid:
+
+- Eventual consistency (managed, not ignored)
+- Projection maintenance (monitored, rebuildable)
+- Team education (ongoing, worth it)
+
+Start with one aggregate. Add event sourcing only where you need history. Don't CQRS your entire app because a conference talk made it sound cool.
+
+Our read-heavy analytics workload was the perfect fit. Your mileage will vary. Profile your actual bottleneck before you segregate anything.
 
 ---
 
-*CQRS patterns in Node.js from June 2017, reflecting production implementations.*
+*CQRS patterns in Node.js from June 2017—Express 4.x, MongoDB 3.x, hand-rolled event bus. Reflects production implementations before mature CQRS libraries (like NestJS CQRS module) were widely adopted.*

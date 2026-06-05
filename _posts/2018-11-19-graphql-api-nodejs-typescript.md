@@ -4,14 +4,16 @@ title: "Building a GraphQL API with Node.js and TypeScript"
 date: 2018-11-19
 categories: [How-To]
 tags: [GraphQL, Node.js, TypeScript]
-excerpt: "Build a production-ready GraphQL API using Node.js, TypeScript, Apollo Server, and code generation. Learn type-safe resolvers, schema design, and best practices."
+excerpt: "REST gave us twelve endpoints to fetch one user profile. GraphQL gave clients one query — and gave us N+1 queries until we learned TypeScript, codegen, and DataLoader."
 ---
 
-TypeScript brings type safety to GraphQL APIs. After building production GraphQL APIs with TypeScript, here's how to set it up effectively.
+The pitch for GraphQL is irresistible: clients ask for exactly what they need, one request, no over-fetching. The reality on day one is a resolver that calls the database once per field and a production outage that teaches you the phrase "N+1 query problem" very personally.
 
-## Project Setup
+We adopted GraphQL in 2018 for a product API where mobile and web clients needed different shapes of the same data. REST meant either bloated responses or custom endpoints per client. GraphQL meant one schema — but only if we built it with type safety, code generation, and batching from the start.
 
-### Dependencies
+Here's the stack that worked: **Node.js, TypeScript, Apollo Server 2.x, and GraphQL Code Generator**. Not because it's the only way — because it's the way that catches mistakes at compile time instead of at 2 AM.
+
+## Project Setup: Dependencies Worth Installing Once
 
 ```bash
 npm install apollo-server-express express graphql
@@ -20,7 +22,7 @@ npm install -D @graphql-codegen/cli @graphql-codegen/typescript \
   @graphql-codegen/typescript-resolvers
 ```
 
-### TypeScript Configuration
+TypeScript config — strict mode on, because loose types defeat the entire purpose:
 
 ```json
 // tsconfig.json
@@ -43,9 +45,9 @@ npm install -D @graphql-codegen/cli @graphql-codegen/typescript \
 }
 ```
 
-## Schema Definition
+## Schema-First: The Contract Comes Before the Code
 
-### Schema-First Approach
+We define the API in GraphQL SDL — a `.graphql` file that product, frontend, and backend can argue about before anyone writes a resolver:
 
 ```graphql
 # src/schema/schema.graphql
@@ -90,9 +92,11 @@ input UpdateUserInput {
 }
 ```
 
-## Code Generation
+Schema-first means the GraphQL file is the source of truth. Resolvers implement the contract; they don't invent it ad hoc.
 
-### Codegen Configuration
+## Code Generation: Let the Machine Write the Boring Types
+
+Hand-writing TypeScript interfaces that mirror your GraphQL schema is a duplication machine. GraphQL Code Generator reads your schema and produces resolver types that enforce correctness:
 
 ```yaml
 # codegen.yml
@@ -107,14 +111,18 @@ generates:
       contextType: ../context#Context
 ```
 
-### Generate Types
+Run it whenever the schema changes:
 
 ```bash
 npm run codegen
 # Generates src/generated/types.ts
 ```
 
-## Type-Safe Resolvers
+Now when you typo a field name in a resolver, TypeScript yells at you in the IDE — not your users in production.
+
+## Type-Safe Resolvers: Thin Wrappers, Fat Services
+
+Resolvers should orchestrate, not implement business logic. Keep them thin; put the real work in services:
 
 ```typescript
 // src/resolvers/user.ts
@@ -151,7 +159,11 @@ export const userResolvers: Resolvers<Context> = {
 };
 ```
 
-## Context Type
+The `Resolvers<Context>` type ensures every field handler matches the schema. Missing a required resolver? Compile error. Wrong return type? Compile error. This is the payoff for the codegen setup.
+
+## Context: Dependency Injection Without the Framework Drama
+
+Apollo's `context` function is your per-request dependency injection container:
 
 ```typescript
 // src/context.ts
@@ -172,7 +184,9 @@ export function createContext(): Context {
 }
 ```
 
-## Service Layer
+Pass services through context, not imports in resolvers. Testing becomes "swap the context," not "mock seventeen modules."
+
+## Service Layer: Where the Database Actually Gets Touched
 
 ```typescript
 // src/services/userService.ts
@@ -213,7 +227,9 @@ export class UserService {
 }
 ```
 
-## Apollo Server Setup
+Generated types flow from schema → service → resolver. Change the schema, run codegen, fix what TypeScript flags. It's a tight loop.
+
+## Apollo Server: Wire It Together
 
 ```typescript
 // src/server.ts
@@ -266,7 +282,9 @@ async function start() {
 start();
 ```
 
-## Resolvers Index
+`formatError` is your last line of defense against leaking stack traces to clients. Log the full error server-side; return a sanitized message client-side.
+
+## Resolver Composition: Keep the Index File Boring
 
 ```typescript
 // src/resolvers/index.ts
@@ -288,7 +306,11 @@ export const resolvers: Resolvers = {
 };
 ```
 
-## DataLoader for N+1
+Split resolvers by domain (`user.ts`, `post.ts`). The index file merges them. When the schema grows, you add files — not thousand-line resolver god objects.
+
+## DataLoader: The N+1 Vaccine
+
+Here's the scenario that burns newcomers: a query fetches 10 posts, each with an author. Naive resolvers call `getUserById` ten times — one per post. DataLoader batches those into one query:
 
 ```typescript
 // src/loaders/userLoader.ts
@@ -324,7 +346,11 @@ User: {
 }
 ```
 
-## Testing
+**Critical detail:** Create a new DataLoader instance **per request** in your context function. Sharing loaders across requests breaks batching and causes cache leaks between users.
+
+We add DataLoader on day one now. Retrofitting it after launch means profiling, refactoring, and explaining to leadership why "the fast API" got slow.
+
+## Testing: Execute Operations, Not Implementation Details
 
 ```typescript
 // src/__tests__/user.test.ts
@@ -358,7 +384,9 @@ describe('User queries', () => {
 });
 ```
 
-## Error Handling
+Test GraphQL operations the way clients call them. Mock the context services, not internal resolver functions — your tests should survive refactors.
+
+## Error Handling: Typed Errors, Clear Messages
 
 ```typescript
 // src/errors.ts
@@ -379,7 +407,9 @@ user: async (parent, args, context) => {
 }
 ```
 
-## Validation
+Map domain errors to GraphQL error extensions (`NOT_FOUND`, `VALIDATION_ERROR`) in `formatError` so clients can handle them programmatically.
+
+## Validation: Before the Service, Not After the Damage
 
 ```typescript
 // src/validators/userValidator.ts
@@ -402,27 +432,18 @@ createUser: async (parent, args, context) => {
 }
 ```
 
-## Best Practices
+GraphQL validates types; your validators validate business rules. "String!" means non-null — it doesn't mean "valid email address."
 
-1. **Use code generation** - Type-safe resolvers
-2. **Separate concerns** - Services, resolvers, loaders
-3. **Use DataLoader** - Prevent N+1 queries
-4. **Validate inputs** - Before processing
-5. **Handle errors** - Proper error types
-6. **Test resolvers** - Unit and integration tests
-7. **Use context** - Dependency injection
-8. **Monitor performance** - Track resolver performance
+## What We'd Tell Past Us
 
-## Conclusion
+Use codegen from commit one — hand-written resolver types drift from the schema silently. Keep resolvers thin and services thick. DataLoader isn't optional for relational data. Validate inputs before they hit the database. Test with `executeOperation`, not by calling resolver functions directly. And monitor resolver-level timing — GraphQL's flexibility makes it easy to ship accidentally expensive queries.
 
-TypeScript + GraphQL enables:
-- Type-safe resolvers
-- Better developer experience
-- Catch errors at compile time
-- Auto-completion in IDEs
+## The Bottom Line
 
-Start with schema-first, generate types, and build type-safe resolvers. The patterns shown here work for production APIs.
+TypeScript plus GraphQL plus codegen gives you a schema that's enforced at compile time, not discovered in production. Apollo Server handles the protocol; your job is clean resolvers, batched data loading, and services that do the actual work.
+
+GraphQL isn't magic — it's a contract. TypeScript makes sure you keep it.
 
 ---
 
-*GraphQL API with Node.js and TypeScript from November 2018, covering Apollo Server 2.0+ and code generation.*
+*Written November 2018, covering Apollo Server 2.0+ and GraphQL Code Generator. Apollo Server 3/4 and the GraphQL ecosystem have evolved — check current docs for server setup and plugin APIs.*

@@ -4,23 +4,30 @@ title: "Building RESTful APIs with Laravel 5: Best Practices"
 date: 2016-01-21
 categories: [How-To]
 tags: [PHP, Laravel, REST API, Backend]
-excerpt: "A comprehensive guide to building production-ready RESTful APIs using Laravel 5, covering resource controllers, API authentication, versioning, and response formatting."
+excerpt: "How I stopped shipping APIs that made mobile devs hate me — resource controllers, JWT auth, versioning, and the Laravel 5 patterns that actually survive production traffic."
 ---
 
-Building robust RESTful APIs is a cornerstone of modern web development. Laravel 5, with its elegant syntax and powerful features, makes API development both efficient and enjoyable. In this guide, I'll share best practices I've learned while building production APIs that serve millions of requests.
+The mobile team sent a Slack message at 4:47pm on a Friday: "Why does your API return HTML error pages?" I'd built the endpoint in Laravel 5, tested it in Postman, declared victory, and moved on. What I hadn't done was think like an API consumer — consistent JSON, predictable errors, auth that doesn't leak session cookies into a native app.
+
+That Friday taught me something I've repeated on every API since: REST isn't about being pedantic about HTTP verbs. It's about making life easy for the people integrating with your backend at 4:47pm on a Friday.
+
+This guide covers the Laravel 5 patterns I landed on after building APIs that eventually served millions of requests. The framework has evolved a lot since 2016, but the principles — structure, transformation, auth, errors — still hold.
 
 ## Why Laravel for APIs?
 
-Laravel 5 introduced significant improvements for API development:
-- Resource controllers for RESTful routing
-- Eloquent API resources for response transformation
-- Built-in authentication with JWT support
-- API rate limiting out of the box
-- Comprehensive testing tools
+Laravel 5 was a genuine shift for API work. Before that, you were often bolting JSON responses onto controllers built for Blade templates. Laravel 5 gave you:
+
+- Resource controllers that map cleanly to REST conventions
+- Eloquent API resources for response transformation (no more manually building arrays in every action)
+- Authentication primitives you could extend for token-based flows
+- Rate limiting middleware you could actually turn on without writing custom throttling
+- A testing story that made endpoint tests feel natural, not bolted-on
+
+The syntax is pleasant, yes. But the real win is convention — your team knows where things live, and new endpoints don't reinvent patterns.
 
 ## Setting Up Your API Structure
 
-First, let's create a clean API structure. I recommend separating API routes from web routes:
+First decision that saves you pain later: separate API routes from web routes. Your mobile app doesn't need CSRF middleware. Your SPA doesn't need session flash data.
 
 ```php
 // routes/api.php
@@ -30,9 +37,11 @@ Route::group(['prefix' => 'v1', 'namespace' => 'Api\V1'], function () {
 });
 ```
 
+Notice the `v1` prefix. We'll come back to why that's not premature optimization — it's insurance.
+
 ## Resource Controllers
 
-Laravel's resource controllers provide a conventional structure for CRUD operations:
+Laravel's resource controllers give you a conventional CRUD structure. This matters more than it sounds: when every controller follows the same shape, code review gets faster and onboarding gets easier.
 
 ```php
 // app/Http/Controllers/Api/V1/UserController.php
@@ -98,9 +107,11 @@ class UserController extends Controller
 }
 ```
 
+One lesson I learned the hard way: keep controllers thin. Validation, authorization, and response shaping belong here; business logic belongs in services or actions. Fat controllers become untestable controllers.
+
 ## API Resources for Response Transformation
 
-API Resources provide a transformation layer between your models and JSON responses:
+This is the layer that fixed my Friday-afternoon incident. API Resources sit between your Eloquent models and JSON output, which means you control exactly what leaves your server — no accidental password hashes, no internal flags, no "we'll filter it in the client."
 
 ```php
 // app/Http/Resources/UserResource.php
@@ -129,9 +140,11 @@ class UserResource extends Resource
 }
 ```
 
+The `whenLoaded('posts')` pattern is easy to overlook and expensive to ignore. Without it, you'll N+1 query your way into a slow API and wonder why list endpoints feel fine in development but collapse under load.
+
 ## Authentication with JWT
 
-For API authentication, I recommend using JWT tokens:
+For stateless API consumers — mobile apps, SPAs, third-party integrations — JWT tokens were the standard approach in the Laravel 5 era. Session cookies work for same-origin web apps; they get awkward everywhere else.
 
 ```php
 // config/jwt.php
@@ -183,9 +196,11 @@ class AuthController extends Controller
 }
 ```
 
+Practical note on TTL: a 60-minute token with refresh capability is a reasonable default. Shorter tokens are more secure but annoy users; longer tokens are convenient but widen your breach window. Pick your tradeoff and document it for API consumers.
+
 ## Error Handling
 
-Consistent error responses are crucial for API consumers:
+Inconsistent error responses are how you earn angry Slack messages. Your API should fail predictably — same JSON shape, meaningful HTTP status codes, no HTML stack traces leaking into production.
 
 ```php
 // app/Exceptions/Handler.php
@@ -233,9 +248,11 @@ class Handler extends ExceptionHandler
 }
 ```
 
+The `wantsJson()` check is the whole game. Web requests get your normal error pages; API requests get JSON. Simple, but easy to forget until someone screenshots your 500 page in the mobile app.
+
 ## API Versioning
 
-Plan for versioning from day one:
+"We'll version later" is how you ship breaking changes that silently break production integrations. Version from day one, even if v1 is the only version for months.
 
 ```php
 // routes/api.php
@@ -248,9 +265,11 @@ Route::group(['prefix' => 'v2', 'namespace' => 'Api\V2'], function () {
 });
 ```
 
+When you need v2, you clone controllers into `Api\V2`, make breaking changes there, and give consumers a migration window. Much better than changing field names in v1 and hoping nobody notices.
+
 ## Rate Limiting
 
-Protect your API from abuse with rate limiting:
+Your API will get hammered — by bots, by buggy retry loops, by that one integration that polls every 100ms because someone forgot to implement backoff. Rate limiting isn't optional.
 
 ```php
 // app/Http/Kernel.php
@@ -262,7 +281,7 @@ protected $middlewareGroups = [
 ];
 ```
 
-For authenticated users, you can increase the limit:
+Authenticated users doing legitimate work deserve higher limits:
 
 ```php
 Route::middleware('auth:api')->group(function () {
@@ -272,9 +291,11 @@ Route::middleware('auth:api')->group(function () {
 });
 ```
 
+Return `429 Too Many Requests` with a `Retry-After` header when you can. Good API clients respect it; bad ones will keep hammering you anyway, but at least you tried.
+
 ## Testing Your API
 
-Always write tests for your API endpoints:
+If you don't test endpoints, you're testing in production. Laravel makes this painless:
 
 ```php
 // tests/Feature/UserApiTest.php
@@ -337,9 +358,11 @@ class UserApiTest extends TestCase
 }
 ```
 
-## Pagination Best Practices
+Test the unhappy paths too — 401 without a token, 404 for missing resources, 422 for validation failures. Happy-path-only tests give false confidence.
 
-Always paginate list endpoints:
+## Pagination
+
+Returning unbounded lists is a performance trap and an integration nightmare. Always paginate:
 
 ```php
 public function index()
@@ -357,9 +380,13 @@ public function index()
 }
 ```
 
+Fifteen per page is a reasonable default. Document it. Let consumers request a different `per_page` if you support it, but cap the maximum — someone will ask for 10,000 records per request eventually.
+
 ## Documentation
 
-Document your API using tools like Laravel API Documentation Generator or integrate Swagger:
+Undocumented APIs become archaeology projects. Six months later, nobody remembers what that endpoint returns or which fields are required.
+
+Tools like Laravel API Documentation Generator or Swagger integration pay for themselves the first time a new developer integrates without pinging you on Slack:
 
 ```php
 /**
@@ -377,20 +404,12 @@ Document your API using tools like Laravel API Documentation Generator or integr
  */
 ```
 
-## Conclusion
+## Wrapping Up
 
-Building RESTful APIs with Laravel 5 becomes straightforward when following these practices:
-- Use resource controllers for consistent structure
-- Implement API resources for response transformation
-- Add proper authentication (JWT recommended)
-- Handle errors consistently
-- Version your API from the start
-- Implement rate limiting
-- Write comprehensive tests
-- Document your endpoints
+Building RESTful APIs with Laravel 5 comes down to a handful of decisions you make early: structure your routes with versioning in mind, transform responses through API Resources so you control the contract, authenticate statelessly for non-browser clients, handle errors as JSON consistently, throttle aggressively, and test the paths that break at 4:47pm on Fridays.
 
-Laravel's elegant syntax and powerful features make it an excellent choice for API development. Start with these patterns and adjust based on your specific requirements.
+Laravel's syntax makes the implementation pleasant. The discipline — thinking like an API consumer, not a backend developer checking boxes — is what keeps your integrations from becoming a support ticket factory.
 
 ---
 
-*This article reflects best practices as of January 2016. Laravel has evolved significantly since then, but these core principles remain relevant.*
+*This article reflects Laravel 5 patterns from January 2016. Laravel has evolved significantly since then — Sanctum, API Resources v2, and modern testing tooling have improved the ergonomics — but these core principles still apply.*

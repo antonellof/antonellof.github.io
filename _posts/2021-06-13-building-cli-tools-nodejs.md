@@ -4,183 +4,222 @@ title: "Building CLI Tools with Node.js"
 date: 2021-06-13
 categories: [How-To]
 tags: [Node.js, CLI, Developer Tools]
-excerpt: "Build command-line tools with Node.js: argument parsing, interactive prompts, colors, progress bars, and best practices for creating professional CLI applications."
+excerpt: "The best CLI tools feel like Unix commands that happen to be written in JavaScript. Commander for parsing, Inquirer for prompts, and the UX details—exit codes, spinners, helpful errors—that separate toys from tools people actually use."
 ---
 
-CLI tools automate workflows. After building production CLI tools, here's how to create them effectively.
+Every team has scripts. `deploy.sh` that nobody understands. `migrate.js` that requires three environment variables and a prayer. `setup.py` that works on Dave's machine.
 
-## Basic CLI Setup
+The difference between scripts and CLI tools is intention: CLIs have help text, proper argument parsing, error messages that tell you what to fix, and exit codes your CI pipeline can trust. They're products, not duct tape.
 
-### Package.json
+I've built CLI tools that became daily workflow for hundreds of engineers—deployment tools, code generators, data migration utilities. The stack is always the same: Node.js, Commander for arguments, Inquirer for interactivity, Chalk for output, Ora for spinners. Boring choices. They work.
+
+## Project Setup
 
 ```json
 {
-  "name": "my-cli",
+  "name": "@company/deploy-cli",
   "version": "1.0.0",
   "bin": {
-    "my-cli": "./bin/cli.js"
+    "deploy": "./bin/cli.js"
   },
+  "type": "module",
   "dependencies": {
     "commander": "^11.0.0",
     "inquirer": "^9.0.0",
-    "chalk": "^5.0.0"
+    "chalk": "^5.0.0",
+    "ora": "^7.0.0",
+    "cli-progress": "^3.12.0"
   }
 }
 ```
-
-### Executable Script
 
 ```javascript
 #!/usr/bin/env node
 // bin/cli.js
 
-const { program } = require('commander');
+import { program } from 'commander';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf8'));
 
 program
-    .name('my-cli')
-    .description('My awesome CLI tool')
-    .version('1.0.0');
+    .name('deploy')
+    .description('Deploy applications to staging and production')
+    .version(pkg.version);
 
-program
-    .command('greet')
-    .description('Greet someone')
-    .argument('<name>', 'Name to greet')
-    .option('-e, --excited', 'Add exclamation mark')
-    .action((name, options) => {
-        let message = `Hello, ${name}`;
-        if (options.excited) {
-            message += '!';
-        }
-        console.log(message);
-    });
+// Commands defined here...
 
 program.parse();
 ```
 
-## Argument Parsing
+The shebang (`#!/usr/bin/env node`) makes it executable. The `bin` field in package.json links it globally on `npm install -g`.
 
-### Commander.js
+## Argument Parsing with Commander
 
 ```javascript
-const { program } = require('commander');
-
 program
-    .name('file-manager')
-    .description('File management CLI')
-    .version('1.0.0');
-
-program
-    .command('copy')
-    .description('Copy a file')
-    .argument('<source>', 'Source file')
-    .argument('<dest>', 'Destination file')
-    .option('-f, --force', 'Overwrite existing file')
-    .action((source, dest, options) => {
-        // Implementation
-        console.log(`Copying ${source} to ${dest}`);
-        if (options.force) {
-            console.log('Force overwrite enabled');
+    .command('deploy')
+    .description('Deploy an application')
+    .argument('<environment>', 'Target environment (staging|production)')
+    .option('-a, --app <name>', 'Application name', 'default')
+    .option('-f, --force', 'Skip confirmation prompt')
+    .option('-d, --dry-run', 'Show what would happen without deploying')
+    .action(async (environment, options) => {
+        if (!['staging', 'production'].includes(environment)) {
+            console.error(chalk.red(`Invalid environment: ${environment}`));
+            process.exit(1);
         }
+        
+        if (environment === 'production' && !options.force) {
+            const { confirm } = await inquirer.prompt([{
+                type: 'confirm',
+                name: 'confirm',
+                message: chalk.yellow('Deploy to PRODUCTION?'),
+                default: false
+            }]);
+            
+            if (!confirm) {
+                console.log('Cancelled.');
+                process.exit(0);
+            }
+        }
+        
+        await deploy(environment, options);
     });
-
-program
-    .command('delete')
-    .description('Delete a file')
-    .argument('<file>', 'File to delete')
-    .option('-r, --recursive', 'Recursive delete')
-    .action((file, options) => {
-        console.log(`Deleting ${file}`);
-    });
-
-program.parse();
 ```
 
-## Interactive Prompts
+Commander handles `--help` automatically. Users run `deploy --help` and see usage. This alone separates CLIs from scripts.
 
-### Inquirer
+### Subcommands for Complex Tools
 
 ```javascript
-const inquirer = require('inquirer');
+program
+    .command('db')
+    .description('Database operations');
+
+program
+    .command('db:migrate')
+    .description('Run pending migrations')
+    .option('--to <version>', 'Migrate to specific version')
+    .action(async (options) => { /* ... */ });
+
+program
+    .command('db:rollback')
+    .description('Rollback last migration')
+    .action(async () => { /* ... */ });
+```
+
+Group related commands. `deploy db:migrate` reads better than `deploy-db-migrate`.
+
+## Interactive Prompts with Inquirer
+
+For wizards and scaffolding:
+
+```javascript
+import inquirer from 'inquirer';
 
 async function createProject() {
     const answers = await inquirer.prompt([
         {
             type: 'input',
-            name: 'projectName',
-            message: 'What is your project name?',
-            validate: (input) => {
-                if (!input) {
-                    return 'Project name is required';
-                }
-                return true;
-            }
+            name: 'name',
+            message: 'Project name:',
+            validate: (input) => input.length > 0 || 'Name is required'
         },
         {
             type: 'list',
-            name: 'framework',
-            message: 'Which framework?',
-            choices: ['React', 'Vue', 'Angular']
+            name: 'template',
+            message: 'Choose template:',
+            choices: ['api', 'worker', 'fullstack']
         },
         {
             type: 'checkbox',
             name: 'features',
-            message: 'Select features:',
+            message: 'Include features:',
             choices: [
-                { name: 'TypeScript', value: 'typescript' },
-                { name: 'Testing', value: 'testing' },
-                { name: 'Linting', value: 'linting' }
+                { name: 'TypeScript', value: 'typescript', checked: true },
+                { name: 'Docker', value: 'docker' },
+                { name: 'CI/CD', value: 'cicd' },
+                { name: 'Tests', value: 'tests', checked: true }
             ]
         },
         {
             type: 'confirm',
             name: 'install',
-            message: 'Install dependencies?',
+            message: 'Run npm install after creation?',
             default: true
         }
     ]);
     
-    console.log('Answers:', answers);
+    await scaffold(answers);
+    console.log(chalk.green(`✓ Created ${answers.name}`));
 }
-
-createProject();
 ```
 
-## Colors and Styling
+Validate early. Give sensible defaults. Confirm destructive actions.
 
-### Chalk
+## Output That Doesn't Suck
+
+### Chalk for Color
 
 ```javascript
-const chalk = require('chalk');
+import chalk from 'chalk';
 
-console.log(chalk.blue('Blue text'));
-console.log(chalk.red.bold('Red bold text'));
-console.log(chalk.green.underline('Green underlined'));
-console.log(chalk.bgYellow.black('Yellow background'));
+console.log(chalk.red('Error:'), 'Deployment failed');
+console.log(chalk.green('✓'), 'Migration complete');
+console.log(chalk.dim('Tip:'), 'Run with --verbose for details');
 
-// Template literals
-console.log(chalk`
-  {red Error:} {yellow Warning message}
-  {green Success:} Operation completed
-`);
+// Semantic colors
+const log = {
+    info: (msg) => console.log(chalk.blue('ℹ'), msg),
+    success: (msg) => console.log(chalk.green('✓'), msg),
+    warn: (msg) => console.log(chalk.yellow('⚠'), msg),
+    error: (msg) => console.error(chalk.red('✗'), msg),
+};
 ```
 
-### Progress Bars
+Use color sparingly. Red for errors, green for success, yellow for warnings. Not rainbow vomit.
+
+### Spinners for Long Operations
 
 ```javascript
-const cliProgress = require('cli-progress');
+import ora from 'ora';
+
+async function deploy(env) {
+    const spinner = ora(`Deploying to ${env}...`).start();
+    
+    try {
+        await runDeployment(env);
+        spinner.succeed(`Deployed to ${env}`);
+    } catch (error) {
+        spinner.fail(`Deployment to ${env} failed`);
+        console.error(chalk.dim(error.message));
+        process.exit(1);
+    }
+}
+```
+
+Users need feedback during 30-second operations. Spinners beat silent hangs.
+
+### Progress Bars for Batch Work
+
+```javascript
+import cliProgress from 'cli-progress';
 
 const bar = new cliProgress.SingleBar({
-    format: 'Progress |{bar}| {percentage}% | {value}/{total}',
-    barCompleteChar: '\u2588',
-    barIncompleteChar: '\u2591',
-    hideCursor: true
+    format: '{bar} {percentage}% | {value}/{total} | {filename}',
+    barCompleteChar: '█',
+    barIncompleteChar: '░',
 });
 
-bar.start(100, 0);
+bar.start(files.length, 0);
 
-for (let i = 0; i <= 100; i++) {
-    bar.update(i);
-    await sleep(50);
+for (const file of files) {
+    await processFile(file);
+    bar.increment({ filename: file });
 }
 
 bar.stop();
@@ -188,89 +227,120 @@ bar.stop();
 
 ## File Operations
 
-### Reading Files
-
 ```javascript
-const fs = require('fs').promises;
-const path = require('path');
+import { readFile, writeFile, mkdir } from 'fs/promises';
+import { dirname } from 'path';
 
-async function readConfig(configPath) {
+async function readConfig(path) {
     try {
-        const content = await fs.readFile(configPath, 'utf-8');
+        const content = await readFile(path, 'utf-8');
         return JSON.parse(content);
     } catch (error) {
-        console.error(`Error reading config: ${error.message}`);
+        if (error.code === 'ENOENT') {
+            console.error(chalk.red(`Config not found: ${path}`));
+            console.error(chalk.dim('Run `deploy init` to create one.'));
+        } else {
+            console.error(chalk.red(`Failed to read config: ${error.message}`));
+        }
         process.exit(1);
     }
 }
-```
 
-### Writing Files
-
-```javascript
-async function writeFile(filePath, content) {
-    const dir = path.dirname(filePath);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(filePath, content, 'utf-8');
+async function writeOutput(path, content) {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, content, 'utf-8');
 }
 ```
 
-## Spinners
+Error messages should tell users **what went wrong** and **what to do next**. "ENOENT" means nothing to most humans.
 
-### Ora
+## Exit Codes Matter
 
 ```javascript
-const ora = require('ora');
+// Success
+process.exit(0);
 
-async function longRunningTask() {
-    const spinner = ora('Processing...').start();
-    
-    try {
-        await processData();
-        spinner.succeed('Processing completed!');
-    } catch (error) {
-        spinner.fail('Processing failed!');
-        console.error(error);
-    }
-}
+// General error
+process.exit(1);
+
+// Specific errors (for CI scripting)
+// 2 = invalid arguments
+// 3 = config error
+// 4 = deployment failed
 ```
 
-## Error Handling
+CI pipelines check exit codes. `exit 0` on failure breaks automation silently. Be deliberate.
 
-### Graceful Errors
+## Global Error Handling
 
 ```javascript
 process.on('uncaughtException', (error) => {
-    console.error(chalk.red('Uncaught exception:'), error);
+    console.error(chalk.red('Unexpected error:'), error.message);
+    if (process.env.DEBUG) console.error(error.stack);
     process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error(chalk.red('Unhandled rejection:'), reason);
+process.on('unhandledRejection', (reason) => {
+    console.error(chalk.red('Unhandled promise rejection:'), reason);
     process.exit(1);
 });
 ```
 
-## Best Practices
+## Testing CLI Tools
 
-1. **Clear commands** - Descriptive names
-2. **Help text** - Document usage
-3. **Error messages** - Helpful and actionable
-4. **Exit codes** - Proper exit codes
-5. **Input validation** - Validate early
-6. **Progress feedback** - Show progress
-7. **Colors** - Use sparingly
-8. **Testing** - Test CLI tools
+```javascript
+import { execSync } from 'child_process';
+
+test('--help exits 0', () => {
+    expect(() => {
+        execSync('node bin/cli.js --help', { encoding: 'utf-8' });
+    }).not.toThrow();
+});
+
+test('invalid environment exits 1', () => {
+    expect(() => {
+        execSync('node bin/cli.js deploy invalid', { encoding: 'utf-8' });
+    }).toThrow();
+});
+```
+
+Test help text, argument validation, and exit codes. Integration tests for critical paths.
+
+## Distribution
+
+```bash
+# Local development
+npm link
+
+# Publish to npm (public or private registry)
+npm publish --access restricted
+
+# Single executable with pkg or nexe
+npx pkg bin/cli.js --targets node18-linux-x64,node18-macos-x64
+```
+
+For internal tools, private npm registry or `npx` from GitHub repo works well.
+
+## CLI UX Checklist
+
+1. **`--help` on every command** — Commander does this; don't break it
+2. **Validate arguments early** — before any async work
+3. **Confirm destructive actions** — especially production deploys
+4. **Show progress** — spinners, bars, or verbose logging
+5. **Meaningful errors** — what failed + how to fix
+6. **Proper exit codes** — 0 success, non-zero failure
+7. **Respect `--verbose` / `--quiet`** — power users and CI have different needs
+8. **`--version`** — always
 
 ## Conclusion
 
-Building CLI tools enables:
-- Automation
-- Developer productivity
-- Better workflows
-- Professional tools
+CLI tools are user interfaces. Your users are developers, but they're still users. They deserve help text, clear errors, and feedback during long operations.
 
-Use commander for parsing, inquirer for prompts, and chalk for styling. The patterns shown here create production-ready CLI tools.
+Commander handles parsing. Inquirer handles interactivity. Chalk and Ora handle output. Your job is the domain logic and the UX decisions: what to confirm, what to validate, what to show when things fail.
+
+The `deploy.sh` scripts that only Dave understood became `deploy` CLI tools the whole team used daily. Same functionality. Radically better experience. That's the bar.
+
+Build the tool you'd want to use at 5 PM on a Friday. Clear help, safe defaults, loud failures. Ship it.
 
 ---
 

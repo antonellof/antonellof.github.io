@@ -4,22 +4,27 @@ title: "React Native for Cross-Platform Mobile Development"
 date: 2018-05-21
 categories: [How-To]
 tags: [React Native, Mobile, Cross-Platform, JavaScript]
-excerpt: "Building cross-platform mobile apps with React Native, covering setup, navigation, native modules, performance optimization, and deployment strategies."
+excerpt: "We had two developers, two app stores, and a deadline that assumed we had four developers. React Native didn't make mobile easy—it made mobile possible."
 ---
 
-React Native enables building iOS and Android apps with one codebase. After shipping multiple React Native apps, here's what works in production.
+The pitch was simple: one codebase, two app stores, native performance. The reality, as we learned shipping our first React Native app, was more like one codebase, two app stores, three build systems, and a growing collection of `Platform.OS` conditionals.
 
-## Why React Native?
+But here's the thing—it worked. We shipped to iOS and Android in the time it would have taken to ship one platform natively. The app wasn't perfect. The Android version had a slightly different shadow rendering. The iOS version crashed once on a specific iPhone SE rotation. Users downloaded it, used it, and mostly didn't notice we were running JavaScript under the hood.
 
-Benefits:
-- **Single codebase** - Write once, run on iOS and Android
-- **Native performance** - Uses native components
-- **Hot reload** - Fast development iteration
-- **Large ecosystem** - NPM packages available
+React Native isn't "write once, run anywhere." It's "learn once, write anywhere"—which is a more honest and more useful promise. You write React components, they render to native UI elements, and you accept that sometimes you'll need platform-specific code. That's the deal, and for many teams, it's a good one.
 
-## Setup
+## Why We Chose React Native (And When You Should Too)
 
-### Installation
+The benefits that actually mattered in production:
+
+- **One language for web and mobile.** Our team already knew React. The ramp-up was weeks, not months.
+- **Native components, not WebViews.** React Native renders to real `UIView` and `android.view` elements. Performance is genuinely good for most app categories—not game-quality, but solid for business and consumer apps.
+- **Fast iteration.** Hot reload means you see changes in seconds. Native rebuild cycles are measured in minutes. That difference compounds over a project.
+- **NPM ecosystem.** Most JavaScript libraries work. Some don't. But the ones that do save enormous time.
+
+What React Native is not: a replacement for native development when you need bleeding-edge platform features, complex animations, or maximum performance. Know your app's requirements before you commit.
+
+## Getting Started: CLI vs. Expo
 
 ```bash
 # Install React Native CLI
@@ -28,10 +33,14 @@ npm install -g react-native-cli
 # Create new project
 react-native init MyApp
 
-# Or use Expo (easier)
+# Or use Expo (easier onboarding, fewer native headaches)
 npm install -g expo-cli
 expo init MyApp
 ```
+
+We started with Expo and never looked back for our first two apps. Expo handles the native build toolchain, provides a solid set of APIs (camera, notifications, file system), and lets you test on a real device with a QR code scan. The tradeoff: you're in Expo's ecosystem until you eject.
+
+Eject when you need a native module Expo doesn't support. Don't eject preemptively because you might need it someday—that's how you end up maintaining Gradle files at midnight.
 
 ### Project Structure
 
@@ -52,7 +61,11 @@ MyApp/
     └── services/
 ```
 
-## Basic Component
+Keep platform-specific code in `android/` and `ios/`. Keep shared logic in `src/`. The moment you start sprinkling Java into your JavaScript files, you've lost the plot.
+
+## Your First Component
+
+React Native uses React's component model but replaces HTML elements with native primitives:
 
 ```javascript
 import React from 'react';
@@ -81,9 +94,13 @@ const styles = StyleSheet.create({
 });
 ```
 
-## Navigation
+`View` is your `div`. `Text` is your `p`/`span` (and yes, all text must be wrapped in `<Text>`—this trips up every web developer exactly once). `StyleSheet.create` is like CSS but with camelCase and flexbox as the default layout engine.
 
-### React Navigation
+Flexbox is the layout system. Not optional. Not "one of several options." Learn flexbox if you haven't, because every screen you build will use it.
+
+## Navigation: Getting Between Screens
+
+React Navigation was the clear winner in 2018 and remains the standard:
 
 ```bash
 npm install @react-navigation/native
@@ -122,9 +139,11 @@ function App() {
 }
 ```
 
-## State Management
+Stack navigators for drill-down flows. Tab navigators for top-level sections. Nest them as needed. The navigation state is a tree, and your component hierarchy should mirror it.
 
-### Redux Integration
+## State Management: Keep It Boring
+
+For most apps, React's built-in state plus Context is enough. When it's not, Redux Toolkit (then relatively new) provided a sane default:
 
 ```bash
 npm install redux react-redux
@@ -153,7 +172,9 @@ function App() {
 }
 ```
 
-## API Integration
+Don't reach for Redux on day one. Start with `useState` and `useContext`. Add Redux when you have shared state that multiple distant components need to read and write. Premature Redux is how you end up dispatching an action to toggle a modal.
+
+## API Integration: Talking to Your Backend
 
 ```javascript
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -202,9 +223,13 @@ class ApiService {
 export default new ApiService();
 ```
 
-## Native Modules
+`fetch` works out of the box. `AsyncStorage` replaces `localStorage` (which doesn't exist in React Native). Wrap your API calls in a service class so you're not duplicating auth header logic in every screen.
 
-### Calling Native Code
+Handle network errors gracefully. Mobile users lose connectivity constantly—tunnels, elevators, spotty WiFi. Your app should degrade with dignity, not crash with a stack trace.
+
+## Native Modules: When JavaScript Isn't Enough
+
+Sometimes you need platform-specific functionality that React Native doesn't ship with—biometrics, proprietary SDKs, hardware access. That's what native modules are for.
 
 ```javascript
 import { NativeModules } from 'react-native';
@@ -256,9 +281,13 @@ RCT_EXTERN_METHOD(showToast:(NSString *)message)
 @end
 ```
 
-## Performance Optimization
+Before writing a native module, check if one already exists on NPM. The React Native community has modules for camera, maps, push notifications, SQLite, and hundreds of other capabilities. Writing your own is a last resort, not a first instinct.
 
-### FlatList for Lists
+## Performance: Where Apps Live or Die
+
+Mobile users are ruthless. A sluggish scroll or a frozen screen and your app gets uninstalled with the conviction of someone ending a bad relationship.
+
+### FlatList, Not ScrollView
 
 ```javascript
 import { FlatList } from 'react-native';
@@ -277,6 +306,8 @@ function UserList({ users }) {
     );
 }
 ```
+
+`ScrollView` renders every child at once. For 20 items, fine. For 200, your app will stutter like it's thinking about a question it doesn't want to answer. `FlatList` virtualizes—only rendering items visible on screen. Use it for any list longer than a dozen items.
 
 ### Memoization
 
@@ -298,7 +329,9 @@ const UserItem = memo(({ user }) => {
 });
 ```
 
-### Image Optimization
+`memo` prevents re-renders when props haven't changed. `useMemo` caches expensive computations. Don't memo everything—that adds overhead. Profile first, optimize what actually hurts.
+
+### Images
 
 ```javascript
 import { Image } from 'react-native';
@@ -307,12 +340,12 @@ import { Image } from 'react-native';
     source={{ uri: imageUrl }}
     style={styles.image}
     resizeMode="cover"
-    // Use cached images
-    cache="force-cache"
 />
 ```
 
-## Platform-Specific Code
+Resize images server-side. A 4000×3000 photo rendered in a 80×80 avatar slot is waste—bandwidth waste, memory waste, and battery waste. Use a CDN with image transforms if you can.
+
+## Platform-Specific Code: The Inevitable Compromise
 
 ```javascript
 import { Platform } from 'react-native';
@@ -338,7 +371,11 @@ const Button = Platform.select({
 })();
 ```
 
-## Testing
+Some differences are cosmetic (padding, shadows). Some are structural (Android back button behavior, iOS safe areas). `Platform.select` keeps the branching clean. For bigger differences, separate component files are clearer than inline conditionals.
+
+Accept that your app will look slightly different on each platform. Users expect that. An iOS app that looks exactly like its Android counterpart feels wrong on both platforms.
+
+## Testing: Simulators Lie
 
 ```javascript
 import { render, fireEvent } from '@testing-library/react-native';
@@ -359,7 +396,9 @@ test('login button works', () => {
 });
 ```
 
-## Deployment
+Unit tests catch logic bugs. They don't catch "the keyboard covers the submit button on iPhone SE" or "the RecyclerView stutters on a Samsung Galaxy S7." Test on real devices. Borrow coworkers' phones. Keep a drawer of test devices if you can. Simulators are for development; devices are for validation.
+
+## Deployment: The Part Nobody Talks About
 
 ### Android
 
@@ -368,7 +407,7 @@ test('login button works', () => {
 cd android
 ./gradlew assembleRelease
 
-# Or AAB for Play Store
+# Or AAB for Play Store (preferred by Google)
 ./gradlew bundleRelease
 ```
 
@@ -385,27 +424,36 @@ xcodebuild -workspace MyApp.xcworkspace \
     archive
 ```
 
-## Best Practices
+Android deployment is Gradle and keystores. iOS deployment is Xcode, provisioning profiles, and certificates. Budget time for both. The build system is not the app, but it will consume your afternoon anyway.
 
-1. **Use TypeScript** - Catch errors early
-2. **Optimize images** - Compress and resize
-3. **Handle errors** - Error boundaries
-4. **Test on devices** - Not just simulators
-5. **Monitor performance** - Use Flipper/Reactotron
-6. **Code splitting** - Lazy load screens
-7. **Use native modules** - When needed
-8. **Keep dependencies updated** - Security patches
+## What We'd Do Differently (And What We'd Do Again)
 
-## Conclusion
+**TypeScript from the start.** We added it mid-project. The migration was painful. Starting with TypeScript catches an entire category of bugs at compile time—especially prop type mismatches between screens.
 
-React Native enables:
-- Cross-platform development
-- Code reuse
-- Native performance
-- Fast iteration
+**Optimize images early.** We didn't, and then we spent a sprint fixing image-related performance issues that users had been suffering through for months.
 
-Start with Expo for easier setup, then eject if you need native modules. The patterns shown here work for production apps.
+**Error boundaries everywhere.** A JavaScript error in one component shouldn't white-screen the entire app. Wrap major sections in error boundaries with a "something went wrong" fallback.
+
+**Test on devices, not just simulators.** Every platform-specific bug we shipped was reproducible on hardware and invisible in the simulator.
+
+**Monitor performance in production.** Flipper and Reactotron are great for development. You also need crash reporting (Crashlytics, Sentry) and performance monitoring in production.
+
+**Lazy-load screens.** Not every screen needs to be in the initial bundle. React Navigation supports lazy loading—use it for infrequently visited screens.
+
+**Keep dependencies updated.** React Native moves fast. Security patches and performance fixes come through dependency updates. Schedule monthly maintenance.
+
+**Native modules as a last resort.** The NPM ecosystem covers most needs. Every native module you write is a module you maintain across platform updates.
+
+## The Bottom Line
+
+React Native gave us a mobile presence with a team that wasn't a mobile team. We shipped faster, shared code between platforms, and delivered an experience users rated well enough to keep using.
+
+It wasn't free. We fought build systems, wrote platform-specific code, and debugged issues that only appeared on specific devices. But the alternative—two native codebases, two teams, or half the platform coverage—was worse for our situation.
+
+Start with Expo if you're new to mobile. Learn flexbox. Use FlatList. Test on real devices. Add complexity only when you need it.
+
+The patterns here carried us through three production apps. React Native has evolved since, but the fundamentals—component model, native rendering, pragmatic platform branching—are the same.
 
 ---
 
-*React Native patterns from May 2018, covering React Native 0.55+ features.*
+*Written in May 2018, covering React Native 0.55+ with React Navigation 3.x and the emerging Redux Toolkit. Expo was at SDK 28; the managed workflow vs. eject debate was as lively as ever.*

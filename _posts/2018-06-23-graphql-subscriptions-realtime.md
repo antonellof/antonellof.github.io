@@ -4,22 +4,32 @@ title: "Implementing GraphQL Subscriptions for Real-Time Updates"
 date: 2018-06-23
 categories: [How-To]
 tags: [GraphQL, WebSocket, Real-Time]
-excerpt: "Build real-time features with GraphQL subscriptions using WebSockets, covering Apollo Server subscriptions, client setup, and production patterns for chat, notifications, and live data."
+excerpt: "Polling every five seconds is just asking your server 'are we there yet?' until it files a restraining order. GraphQL subscriptions are the grown-up alternative."
 ---
 
-GraphQL subscriptions enable real-time updates over WebSockets. After implementing real-time features in production, here's how to set up GraphQL subscriptions effectively.
+Our notification system polled every five seconds.
 
-## What are GraphQL Subscriptions?
+It worked, in the same way that refreshing your email by hitting F5 every few seconds "works." The server handled it fine at low traffic. Then we grew, and the polling load became a constant background hum—thousands of requests per minute, all returning "nothing new" except the occasional notification buried in the noise.
 
-Subscriptions allow clients to:
-- Subscribe to data changes
-- Receive real-time updates
-- Use WebSocket connections
-- Maintain GraphQL query syntax
+We needed push, not pull. WebSockets were the obvious answer, but we had just migrated to GraphQL and didn't want a parallel real-time API with its own auth, its own types, and its own special sadness.
 
-## Server Setup
+GraphQL subscriptions give you real-time updates over WebSockets using the same schema, the same types, and the same auth context as your queries and mutations. One API surface, three operation types. That's the pitch. Here's how we made it work in production—and what broke along the way.
 
-### Apollo Server with Subscriptions
+## What Subscriptions Actually Are
+
+Subscriptions are GraphQL's third operation type:
+
+- **Query**: read data (HTTP request/response)
+- **Mutation**: change data (HTTP request/response)
+- **Subscription**: watch for changes (WebSocket, persistent connection)
+
+A client subscribes to an event. The server pushes updates when that event occurs. The client receives typed, structured data—same shape as a query response—without polling.
+
+The transport is WebSocket (via `subscriptions-transport-ws` in the Apollo ecosystem circa 2018). HTTP is request-response; WebSocket is persistent bidirectional. Subscriptions need the persistent channel.
+
+## Server Setup: Apollo Server with Subscriptions
+
+The core pattern: a PubSub engine publishes events from mutations (or external sources), and subscription resolvers listen for those events.
 
 ```javascript
 const { ApolloServer, gql, PubSub } = require('apollo-server');
@@ -68,7 +78,7 @@ const resolvers = {
                 authorId: context.userId
             });
             
-            // Publish subscription event
+            // Publish event to subscribers
             pubsub.publish('POST_CREATED', {
                 postCreated: post
             });
@@ -82,7 +92,7 @@ const resolvers = {
         },
         postUpdated: {
             subscribe: (parent, args) => {
-                return pubsub.asyncIterator([`POST_UPDATED_${args.postId}`]);
+                return pubsub.asyncIterator([`POST_UPDATED_${args.postId}`])
             }
         }
     }
@@ -107,9 +117,13 @@ httpServer.listen(4000, () => {
 });
 ```
 
-## Client Setup
+The flow: mutation creates a post → `pubsub.publish` fires → subscription resolver's `asyncIterator` delivers the event → connected clients receive the new post. The mutation doesn't know who's listening. The subscribers don't know who published. Clean separation.
 
-### Apollo Client with Subscriptions
+`postUpdated` uses a parameterized channel (`POST_UPDATED_${postId}`) so clients only receive updates for the post they're watching—not every post in the system.
+
+## Client Setup: Splitting HTTP and WebSocket
+
+Apollo Client needs two links: HTTP for queries and mutations, WebSocket for subscriptions.
 
 ```javascript
 import { ApolloClient, InMemoryCache, split, HttpLink } from '@apollo/client';
@@ -130,6 +144,7 @@ const wsLink = new WebSocketLink({
     }
 });
 
+// Route subscriptions to WebSocket, everything else to HTTP
 const splitLink = split(
     ({ query }) => {
         const definition = getMainDefinition(query);
@@ -148,12 +163,13 @@ const client = new ApolloClient({
 });
 ```
 
-## Subscription Examples
+The `split` function inspects each operation and routes it to the right transport. Queries and mutations go over HTTP (cacheable, stateless, well-understood). Subscriptions go over WebSocket (persistent, bidirectional). One client, two transports, transparent to your components.
 
-### Chat Application
+## Real-World Patterns
+
+### Chat: Room-Scoped Events
 
 ```graphql
-# Subscription
 subscription {
     messageAdded(roomId: "123") {
         id
@@ -177,7 +193,7 @@ Subscription: {
     }
 }
 
-// Mutation publishes event
+// Mutation publishes to the room channel
 Mutation: {
     sendMessage: async (parent, args, context) => {
         const message = await db.createMessage({
@@ -194,7 +210,9 @@ Mutation: {
 }
 ```
 
-### Live Notifications
+Each chat room has its own channel. Clients subscribe only to rooms they're in. Without room-scoped channels, every connected client receives every message in the system. That's fine for five users. It's catastrophic for five thousand.
+
+### Notifications: User-Scoped with Auth
 
 ```graphql
 subscription {
@@ -213,7 +231,7 @@ subscription {
 Subscription: {
     notificationReceived: {
         subscribe: (parent, args, context) => {
-            // Only subscribe to own notifications
+            // Only subscribe to your own notifications
             if (args.userId !== context.userId) {
                 throw new Error('Unauthorized');
             }
@@ -231,7 +249,9 @@ function sendNotification(userId, notification) {
 }
 ```
 
-### Live Data Updates
+Always validate that the subscriber is authorized to receive the events they're subscribing to. A subscription is a long-lived connection—if you skip auth here, you're leaving a window open.
+
+### Live Data: External Sources
 
 ```graphql
 subscription {
@@ -254,7 +274,7 @@ Subscription: {
     }
 }
 
-// External data source
+// External data source feeds the pub/sub layer
 setInterval(() => {
     const price = getStockPrice('AAPL');
     pubsub.publish(`STOCK_AAPL`, {
@@ -263,7 +283,9 @@ setInterval(() => {
 }, 1000);
 ```
 
-## React Hook Usage
+Subscriptions aren't only for database mutations. Any event source—market data feeds, IoT sensors, server-sent events from third parties—can publish into the same PubSub infrastructure.
+
+## React Integration
 
 ```javascript
 import { useSubscription } from '@apollo/client';
@@ -296,9 +318,13 @@ function PostList() {
 }
 ```
 
-## Authentication
+`useSubscription` is a hook that manages the WebSocket lifecycle. It connects when the component mounts, disconnects when it unmounts, and re-renders on new data. For a feed that accumulates events, merge incoming data into your local state or cache rather than replacing on each event.
 
-### Server-Side Auth
+## Authentication: The Part You Can't Skip
+
+HTTP requests carry auth headers naturally. WebSocket connections don't—they need auth passed at connection time.
+
+### Server-Side
 
 ```javascript
 const { SubscriptionServer } = require('subscriptions-transport-ws');
@@ -329,7 +355,9 @@ const subscriptionServer = SubscriptionServer.create(
 );
 ```
 
-### Client-Side Auth
+`onConnect` runs when a client opens a WebSocket. Verify the token, return a context object, and that context is available in subscription resolvers. Reject invalid tokens before the subscription starts—not after.
+
+### Client-Side
 
 ```javascript
 const wsLink = new WebSocketLink({
@@ -347,7 +375,11 @@ const wsLink = new WebSocketLink({
 });
 ```
 
-## Error Handling
+Use a function for `connectionParams` so the token is fresh on each reconnection. A stale token on reconnect is a common bug—user's session refreshed over HTTP, but the WebSocket is still using the old token.
+
+## Error Handling and Reconnection
+
+WebSocket connections drop. Networks change. Laptops sleep. Your subscription layer needs to handle disconnection gracefully.
 
 ```javascript
 const wsLink = new WebSocketLink({
@@ -364,7 +396,7 @@ const wsLink = new WebSocketLink({
     }
 });
 
-// Handle subscription errors
+// Handle subscription errors in components
 const { data, error } = useSubscription(SUBSCRIPTION);
 
 useEffect(() => {
@@ -378,9 +410,11 @@ useEffect(() => {
 }, [error]);
 ```
 
-## Performance Optimization
+`reconnect: true` handles the happy path—connection drops, client reconnects automatically. But reconnection replays subscriptions, and if the server state changed while disconnected, clients may have missed events. For critical data, consider a "sync on reconnect" query that fetches state since the last known timestamp.
 
-### Filtering Subscriptions
+## Performance: Don't Broadcast Everything
+
+### Filter at the Channel Level
 
 ```graphql
 subscription {
@@ -392,7 +426,6 @@ subscription {
 ```
 
 ```javascript
-// Only subscribe to specific post updates
 Subscription: {
     postUpdated: {
         subscribe: (parent, args) => {
@@ -402,10 +435,13 @@ Subscription: {
 }
 ```
 
-### Batching Updates
+The more specific your channels, the less wasted bandwidth. `POST_UPDATED_123` delivers to clients watching post 123. A global `POST_UPDATED` channel delivers to everyone, most of whom don't care.
+
+### Batch High-Frequency Updates
+
+For data that changes many times per second (stock prices, game state), batching prevents overwhelming clients:
 
 ```javascript
-// Batch multiple updates
 const updates = [];
 
 setInterval(() => {
@@ -418,12 +454,16 @@ setInterval(() => {
 }, 1000);
 ```
 
-## Production Considerations
+Collect updates over a window, publish once. Clients receive a batch instead of a firehose. Tune the interval to your use case—1 second for stock prices, 100ms for a collaborative editor.
 
-### Scaling
+## Production: Where It Gets Real
+
+### Scaling Beyond One Server
+
+The in-memory `PubSub` works for development and single-server deployments. In production with multiple server instances, you need a distributed pub/sub layer:
 
 ```javascript
-// Use Redis for distributed pub/sub
+// Redis for distributed pub/sub
 const Redis = require('ioredis');
 const redis = new Redis(process.env.REDIS_URL);
 
@@ -448,10 +488,11 @@ class RedisPubSub {
 }
 ```
 
+When a mutation on Server A publishes an event, Redis propagates it to Server B and Server C, where their subscribers are connected. Without this, subscriptions only work if the client happens to be connected to the same server that handled the mutation.
+
 ### Connection Limits
 
 ```javascript
-// Limit concurrent connections
 let connectionCount = 0;
 const MAX_CONNECTIONS = 1000;
 
@@ -467,27 +508,38 @@ onDisconnect: () => {
 }
 ```
 
-## Best Practices
+Every WebSocket is an open connection consuming memory and file descriptors. Set limits. Monitor connection count. Scale horizontally when you approach capacity.
 
-1. **Use subscriptions sparingly** - Not all data needs real-time
-2. **Filter subscriptions** - Subscribe to specific data
-3. **Handle reconnection** - Automatic reconnection logic
-4. **Monitor connections** - Track WebSocket connections
-5. **Use Redis** - For distributed pub/sub
-6. **Rate limit** - Prevent abuse
-7. **Error handling** - Graceful error recovery
-8. **Cleanup** - Unsubscribe when component unmounts
+## What We Learned
 
-## Conclusion
+**Don't make everything real-time.** Subscriptions are expensive—persistent connections, server-side state, reconnection logic. Use them for data that genuinely benefits from instant delivery: chat, notifications, live dashboards. Your user profile does not need a subscription.
 
-GraphQL subscriptions enable:
-- Real-time updates
-- WebSocket connections
-- GraphQL query syntax
-- Type-safe subscriptions
+**Filter aggressively.** Room-scoped, user-scoped, entity-scoped channels. The default should be "only people who care receive this event," not "broadcast and let clients filter."
 
-Use subscriptions for chat, notifications, and live data. The patterns shown here handle production workloads.
+**Handle reconnection explicitly.** Automatic reconnect is necessary but not sufficient. Missed events during disconnection need a recovery strategy.
+
+**Monitor connections.** Track active WebSocket count, connection duration, reconnection frequency. A spike in reconnections means network issues or server instability.
+
+**Use Redis (or equivalent) in production.** In-memory PubSub is a development tool. Multi-server deployments need distributed pub/sub from day one.
+
+**Rate limit subscriptions.** A malicious client can open thousands of WebSocket connections or subscribe to expensive channels. Apply the same abuse prevention you'd apply to HTTP endpoints.
+
+**Clean up on unmount.** `useSubscription` handles this, but if you're managing WebSocket connections manually, unsubscribe when the component leaves the screen. Orphaned subscriptions leak server resources.
+
+**Test the disconnect scenario.** Connect, receive events, kill the network, restore the network, verify recovery. This is the flow that breaks in production and passes in development.
+
+## When Subscriptions Are Worth It
+
+GraphQL subscriptions aren't free complexity. You're operating a stateful layer on top of your stateless API. You're managing WebSocket connections, distributed pub/sub, reconnection, and missed-event recovery.
+
+But when you need real-time—and you actually need it, not just "it would be nice"—subscriptions give you a typed, schema-driven push mechanism that fits naturally into your existing GraphQL stack.
+
+We replaced our polling notification system with subscriptions and cut server load from the constant polling hum to near-zero baseline. Chat worked. Live dashboards worked. The collaborative editing feature that justified the migration in the first place worked.
+
+Use subscriptions for chat, notifications, and live data. Start with in-memory PubSub in development. Move to Redis before you deploy multi-instance. Filter channels aggressively. Handle reconnection with a recovery strategy.
+
+The patterns here carried our real-time features through production traffic. They'll age as the ecosystem moves toward GraphQL over WebSocket standardized transports, but the architecture—publish events, subscribe to channels, scale with Redis—endures.
 
 ---
 
-*GraphQL subscriptions from June 2018, covering Apollo Server 2.0+ features.*
+*Written in June 2018, covering Apollo Server 2.0+ with subscriptions-transport-ws. The GraphQL over WebSocket protocol (graphql-ws) would later emerge as the successor to subscriptions-transport-ws; the pub/sub patterns remain the same.*

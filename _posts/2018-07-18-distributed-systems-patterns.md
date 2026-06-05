@@ -4,31 +4,38 @@ title: "Distributed Systems Patterns: Circuit Breaker and Retry Logic"
 date: 2018-07-18
 categories: [Architecture]
 tags: [Distributed Systems, Resilience, Patterns]
-excerpt: "Implement resilience patterns in distributed systems: circuit breakers, retry logic, bulkheads, and timeouts. Learn how to handle failures gracefully in microservices."
+excerpt: "One flaky microservice took down our whole checkout flow. Here's how circuit breakers, retries, timeouts, and bulkheads stopped the domino effect — with code you can actually ship."
 ---
 
-Distributed systems fail. After building resilient microservices, I've learned that proper failure handling is critical. Here are the patterns that work in production.
+At 2:47 AM on a Tuesday, our recommendation service started timing out. Nothing dramatic — just a few slow responses. But our order service retried. And retried. And retried. By 2:52 AM, we'd exhausted connection pools, thread pools, and the patience of the on-call engineer (me, in sweatpants, questioning career choices).
 
-## The Problem
+That's the thing about distributed systems: **failure is not an edge case. It's Tuesday.** Networks drop packets. Services OOM. Someone deploys a typo to production. Without deliberate resilience patterns, one sick service infects the whole herd.
 
-In distributed systems:
-- Networks fail
-- Services crash
-- Timeouts occur
-- Cascading failures happen
+These are the patterns we landed on after that incident — and several like it — in production microservices. Not theory from a textbook. Actual code that kept us from paging the CEO.
 
-Without proper patterns, one failure can bring down the entire system.
+## Why "Just Retry" Is a Trap
 
-## Circuit Breaker Pattern
+In a monolith, a slow database call is annoying. In microservices, it's contagious.
 
-### Concept
+When Service A calls Service B, which calls Service C, and C hiccups:
+- A's threads block waiting for B
+- B's threads block waiting for C
+- Users see spinners. Then errors. Then Twitter mentions.
 
-A circuit breaker:
-- **Open**: Fails fast, doesn't call service
-- **Closed**: Normal operation
-- **Half-Open**: Testing if service recovered
+The naive fix — "retry harder" — makes it worse. You're not healing the system; you're amplifying the outage. The patterns below work together: **fail fast when you should, retry when it helps, and isolate blast radius when all else fails.**
 
-### Implementation
+## Circuit Breaker: The Bouncer at the Door
+
+Think of a circuit breaker like a bouncer who watched three people get turned away at the door and decided, "Yeah, we're not letting anyone in until management sorts this out."
+
+Three states:
+- **Closed** — Normal operation. Requests flow through.
+- **Open** — Fail fast. Don't even bother calling the downstream service.
+- **Half-Open** — Tentative probe. "Are you feeling better? One request, just to check."
+
+The key insight: when a dependency is down, **stop hammering it**. Return cached data, a degraded response, or a clear error. Your users prefer "recommendations unavailable" over a 45-second timeout.
+
+### Roll Your Own (It's Simpler Than You Think)
 
 ```javascript
 class CircuitBreaker {
@@ -86,7 +93,7 @@ class CircuitBreaker {
 }
 ```
 
-### Usage
+### Wiring It Up
 
 ```javascript
 const axios = require('axios');
@@ -114,7 +121,17 @@ try {
 }
 ```
 
-## Retry Logic
+**Tuning tip:** `failureThreshold: 5` and `resetTimeout: 30000` are reasonable starting points. Too aggressive and you'll flap open/closed on transient blips. Too lenient and you'll burn resources before the breaker trips. Watch your metrics and adjust — this is not a set-and-forget knob.
+
+## Retry Logic: Polite Persistence, Not Spam
+
+Retries are good. *Blind* retries are how you DDoS yourself.
+
+The rules we follow:
+- **Retry transient failures** — network blips, 503s, connection resets
+- **Don't retry client errors** — a 400 won't magically become a 200 if you ask nicely
+- **Use exponential backoff** — give the downstream service room to recover
+- **Add jitter** — so 500 clients don't retry at the exact same millisecond (the "thundering herd" problem)
 
 ### Exponential Backoff
 
@@ -157,7 +174,9 @@ function sleep(ms) {
 }
 ```
 
-### Jitter
+### Jitter: Because Synchronized Retries Are Rude
+
+Without jitter, every client that failed at T=0 retries at T=1s, T=2s, T=4s — creating periodic traffic spikes that look like a mini DDoS. Jitter spreads the load.
 
 ```javascript
 function addJitter(delay, jitter = 0.1) {
@@ -184,7 +203,11 @@ async function retryWithJitter(fn, options = {}) {
 }
 ```
 
-## Timeout Pattern
+**Lesson learned:** We once had a payment provider outage. Our retry logic was fine. Our *lack* of jitter meant we hit their recovery endpoint with 10x normal traffic the moment they came back online. They went down again. We added jitter the next day.
+
+## Timeouts: The Most Underrated Pattern
+
+A request without a timeout is a request that waits forever. Forever is longer than your users' patience.
 
 ```javascript
 function withTimeout(promise, timeoutMs) {
@@ -211,9 +234,11 @@ try {
 }
 ```
 
-## Bulkhead Pattern
+Set timeouts at **every hop** — client to gateway, gateway to service, service to database. The slowest timeout in the chain wins, and if you only set one, you'll still leak threads everywhere else.
 
-Isolate resources to prevent cascading failures:
+## Bulkhead Pattern: Compartmentalize Like a Ship
+
+On ships, bulkheads prevent one flooded compartment from sinking the whole vessel. In software, bulkheads limit how many concurrent calls can hit a dependency — so when the recommendation service melts down, checkout still works.
 
 ```javascript
 class Bulkhead {
@@ -258,7 +283,11 @@ const bulkhead = new Bulkhead(10); // Max 10 concurrent
 await bulkhead.execute(() => fetchUser('123'));
 ```
 
-## Combining Patterns
+We give critical paths (payments, auth) their own bulkheads with higher limits. Nice-to-have paths (recommendations, "people also bought") get tighter limits and graceful fallbacks. When things go sideways, the money still moves.
+
+## Stack the Patterns: Defense in Depth
+
+Real resilience isn't one pattern — it's layers. Timeout wraps circuit breaker wraps bulkhead. Each layer catches what the previous one missed.
 
 ```javascript
 class ResilientService {
@@ -298,9 +327,9 @@ try {
 }
 ```
 
-## Node.js Libraries
+## Don't Reinvent Everything: Use Battle-Tested Libraries
 
-### Opossum (Circuit Breaker)
+We rolled our own circuit breaker once for learning. In production, we use **Opossum** — it handles edge cases we hadn't thought of and emits events for monitoring.
 
 ```javascript
 const CircuitBreaker = require('opossum');
@@ -322,7 +351,7 @@ breaker.fallback(() => getCachedUser('123'));
 const user = await breaker.fire('123');
 ```
 
-### Axios Retry
+For HTTP retries, **axios-retry** saves you from copy-pasting backoff logic into every service:
 
 ```javascript
 const axios = require('axios');
@@ -342,7 +371,9 @@ axiosRetry(client, {
 const response = await client.get('https://api.example.com/users/123');
 ```
 
-## Monitoring
+## If You Can't Measure It, You Can't Fix It at 3 AM
+
+Patterns without metrics are wishful thinking. Track what matters:
 
 ```javascript
 class ResilientService {
@@ -391,27 +422,22 @@ class ResilientService {
 }
 ```
 
-## Best Practices
+Alert on circuit breaker opens. Graph retry rates. When failure counts spike before a breaker trips, your thresholds need tuning. When breakers never open despite high error rates, they're decorative.
 
-1. **Use circuit breakers** - Prevent cascading failures
-2. **Implement retries** - With exponential backoff
-3. **Set timeouts** - Don't wait forever
-4. **Use bulkheads** - Isolate resources
-5. **Monitor metrics** - Track failures and latency
-6. **Have fallbacks** - Return cached/default data
-7. **Fail fast** - Don't retry forever
-8. **Test failures** - Chaos engineering
+## What We Actually Do in Production
 
-## Conclusion
+After enough incidents, these became our defaults — not commandments, but strong opinions:
 
-Resilience patterns enable:
-- Graceful failure handling
-- Prevention of cascading failures
-- Better user experience
-- System stability
+Circuit breakers go on every cross-service call that isn't strictly required for the happy path. Retries use exponential backoff with jitter, capped at three attempts, and never on 4xx errors. Every outbound call has an explicit timeout — usually 3–5 seconds for internal services, longer for external APIs with SLAs. Bulkheads separate critical from optional dependencies. Fallbacks return stale cache or degraded responses rather than errors when the business allows it. And we chaos-test quarterly — because patterns you haven't tested are patterns you don't trust.
 
-Combine circuit breakers, retries, timeouts, and bulkheads for production-ready services. The patterns shown here handle real-world failures.
+## The Bottom Line
+
+Distributed systems don't fail gracefully on their own. That's your job.
+
+Circuit breakers stop you from drowning a sick service. Retries handle transient blips — with backoff and jitter so you don't make things worse. Timeouts prevent thread leaks and user rage. Bulkheads keep one bad dependency from taking down everything else.
+
+The recommendation service still flakes sometimes. But checkout works. And I sleep in sweatpants by choice now, not because of a pager.
 
 ---
 
-*Distributed systems resilience patterns from July 2018, covering production patterns.*
+*Written July 2018. Patterns and libraries (Opossum, axios-retry) reflect the Node.js ecosystem at the time — the concepts are timeless; check current library versions before copy-pasting into a 2024 codebase.*

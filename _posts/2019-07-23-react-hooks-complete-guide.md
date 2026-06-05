@@ -4,22 +4,34 @@ title: "React Hooks: A Complete Guide"
 date: 2019-07-23
 categories: [How-To]
 tags: [React, Hooks, JavaScript]
-excerpt: "Master React Hooks: useState, useEffect, useContext, useReducer, custom hooks, and performance optimization. Learn how to build modern React applications with hooks."
+excerpt: "React Hooks killed the class component — and my weekend. Here's the practical guide I wish I'd had when useEffect betrayed me at 2am."
 ---
 
-React Hooks revolutionized React development. After building production apps with hooks, here's a complete guide to using them effectively.
+I remember the exact moment hooks broke my brain.
 
-## What are Hooks?
+I'd spent three years writing React class components. `componentDidMount`, `componentWillUnmount`, the whole lifecycle dance. Then React 16.8 dropped and suddenly everyone was writing `useState` in a functional component and acting like it was obvious. It was not obvious. My first `useEffect` ran eleven times, spawned a memory leak, and somehow still didn't fetch the user data.
 
-Hooks let you:
-- Use state in functional components
-- Access lifecycle methods
-- Share logic between components
-- Avoid class components
+Six months and two production apps later, hooks clicked. Not because the API is complicated — it's actually elegant — but because you have to unlearn some habits that classes trained into you. This is the guide I wanted during that unlearning phase: practical, opinionated, and free of the "just read the docs" energy that haunted the React community in 2019.
 
-## useState
+## What Hooks Actually Are (And Why They Exist)
 
-### Basic Usage
+Before hooks, sharing stateful logic between components meant higher-order components, render props, or copy-pasting the same `componentDidMount` boilerplate until you questioned your career choices. Class components worked, but they made simple things feel ceremonious.
+
+Hooks let functional components do everything classes could — state, lifecycle, context, refs — without the `this` binding gymnastics or the mental overhead of "which lifecycle method does this belong in?"
+
+The rules sound strict but exist for good reason:
+
+- Call hooks only at the top level of your component (no loops, no conditions)
+- Call hooks only from React function components or custom hooks
+- Name custom hooks starting with `use` so everyone knows the rules apply
+
+Break these rules and React can't guarantee hook order between renders. Things get weird fast.
+
+## useState: State Without the Ceremony
+
+`useState` is the gateway drug. One line, and your functional component has memory.
+
+### The Basics
 
 ```javascript
 import React, { useState } from 'react';
@@ -38,7 +50,11 @@ function Counter() {
 }
 ```
 
-### Multiple State Variables
+Simple. Readable. No constructor, no `this.state`, no `this.setState` callback hell.
+
+### Multiple State Variables (Please Do This)
+
+A common beginner mistake: cramming unrelated state into one object because classes made you think in terms of a single `this.state` blob. Separate concerns into separate hooks:
 
 ```javascript
 function Form() {
@@ -69,7 +85,11 @@ function Form() {
 }
 ```
 
-### Functional Updates
+When one field updates, React only re-renders what depends on it. Your future self debugging a form at midnight will thank you.
+
+### Functional Updates: The Pattern You'll Need Eventually
+
+If you update state based on the previous value — especially in rapid clicks or async callbacks — don't trust the closure:
 
 ```javascript
 function Counter() {
@@ -93,9 +113,15 @@ function Counter() {
 }
 ```
 
-## useEffect
+The functional form (`prev => prev + 1`) always gets the latest value. The direct form (`count + 1`) gets whatever `count` was when that function was created. In a counter it's annoying. In a payment flow it's expensive.
 
-### Basic Usage
+## useEffect: Side Effects and the Dependency Array Trap
+
+`useEffect` is where hooks earn their reputation. It replaces `componentDidMount`, `componentDidUpdate`, and `componentWillUnmount` with one API — which sounds great until you forget the dependency array and wonder why your API is getting hammered.
+
+Think of `useEffect` as: "after React paints the screen, do this thing."
+
+### Fetching Data (The Classic Use Case)
 
 ```javascript
 import React, { useState, useEffect } from 'react';
@@ -120,7 +146,11 @@ function UserProfile({ userId }) {
 }
 ```
 
-### Cleanup
+That `[userId]` dependency array is not optional decoration. Without it, you fetch once on mount and never again — even when the user navigates to a different profile. With it wrong, you fetch on every render and DDOS your own API. Ask me how I know.
+
+### Cleanup: Don't Leak Timers (Or Dignity)
+
+Effects that subscribe to something must unsubscribe. The return function is your cleanup:
 
 ```javascript
 function Timer() {
@@ -131,7 +161,6 @@ function Timer() {
             setSeconds(prev => prev + 1);
         }, 1000);
         
-        // Cleanup function
         return () => clearInterval(interval);
     }, []); // Run once on mount
     
@@ -139,21 +168,23 @@ function Timer() {
 }
 ```
 
-### Multiple Effects
+Empty dependency array `[]` means "run once on mount, clean up on unmount." Perfect for subscriptions, timers, and event listeners. Skip cleanup and your unmounted component keeps ticking in the background like a ghost in the machine.
+
+### Multiple Effects: Separate Concerns
+
+Don't stuff unrelated side effects into one `useEffect` just because you can. Split them:
 
 ```javascript
 function UserProfile({ userId }) {
     const [user, setUser] = useState(null);
     const [posts, setPosts] = useState([]);
     
-    // Fetch user
     useEffect(() => {
         fetch(`/api/users/${userId}`)
             .then(res => res.json())
             .then(setUser);
     }, [userId]);
     
-    // Fetch posts
     useEffect(() => {
         fetch(`/api/users/${userId}/posts`)
             .then(res => res.json())
@@ -173,9 +204,11 @@ function UserProfile({ userId }) {
 }
 ```
 
-## useContext
+Each effect has one job. When posts fetching breaks, you know exactly where to look.
 
-### Create Context
+## useContext: Prop Drilling Escape Hatch
+
+Context solves the "pass this theme down through seven components that don't care about it" problem. It's not a state management replacement — it's a broadcast mechanism.
 
 ```javascript
 import React, { createContext, useContext, useState } from 'react';
@@ -219,9 +252,13 @@ function ThemedButton() {
 }
 ```
 
-## useReducer
+The custom `useTheme` hook with the guard clause is a pattern worth stealing. Without it, you get `undefined` errors that send you on a three-hour archaeology expedition through your component tree.
 
-### Complex State
+Context re-renders every consumer when the value changes. For frequently updating global state, consider whether you need context at all — or whether a proper state library makes more sense. In 2019, that conversation usually ended with Redux or MobX. Today it might end with Zustand or Jotai. The principle holds: context is for data that changes rarely and is read widely.
+
+## useReducer: When useState Gets Awkward
+
+If your state updates involve multiple sub-values, complex transitions, or the next state depends on the previous one in non-trivial ways, `useReducer` gives you predictable structure:
 
 ```javascript
 import React, { useReducer } from 'react';
@@ -261,9 +298,15 @@ function Counter() {
 }
 ```
 
-## Custom Hooks
+I reach for `useReducer` when I catch myself writing `setState` logic that looks like a switch statement anyway. The reducer pattern forces you to think about state transitions explicitly — which pays off when you're debugging why the checkout flow landed in an impossible state.
+
+## Custom Hooks: Where Hooks Become Actually Powerful
+
+The real revolution isn't `useState`. It's custom hooks — reusable bundles of stateful logic that compose like Lego bricks.
 
 ### Data Fetching Hook
+
+Every team in 2019 reinvented this wheel. Here's a solid version:
 
 ```javascript
 function useFetch(url) {
@@ -304,7 +347,13 @@ function UserProfile({ userId }) {
 }
 ```
 
+Now every component that needs data gets the same loading/error/success behavior. Fix a race condition once, fix it everywhere.
+
+Production note from painful experience: this hook doesn't cancel in-flight requests when `url` changes. For a blog post example it's fine. For production, add an `AbortController` or an `isMounted` guard. Your users navigate faster than your API responds.
+
 ### Local Storage Hook
+
+Persistence without the "why did my state reset on refresh" surprise:
 
 ```javascript
 function useLocalStorage(key, initialValue) {
@@ -342,9 +391,13 @@ function Settings() {
 }
 ```
 
-## Performance Optimization
+The lazy initializer (`useState(() => ...)`) avoids reading localStorage on every render. Small detail, real performance win.
 
-### useMemo
+## Performance: useMemo and useCallback (Use Sparingly)
+
+Here's the uncomfortable truth about hooks-era React: most performance problems are architectural, not missing `useMemo`. That said, when you have genuinely expensive computations or child components that re-render unnecessarily, these hooks help.
+
+### useMemo: Cache Expensive Calculations
 
 ```javascript
 import React, { useState, useMemo } from 'react';
@@ -364,7 +417,9 @@ function ExpensiveComponent({ items, filter }) {
 }
 ```
 
-### useCallback
+`useMemo` recalculates only when `items` or `filter` change. Filtering a hundred items? Don't bother. Filtering ten thousand items on every keystroke? Now we're talking.
+
+### useCallback: Stable Function References
 
 ```javascript
 import React, { useState, useCallback } from 'react';
@@ -384,20 +439,15 @@ const Child = React.memo(({ onClick }) => {
 });
 ```
 
-## Best Practices
+`useCallback` shines when you pass callbacks to `React.memo`-wrapped children. Without it, a new function reference on every parent render defeats memoization entirely. The parent re-renders, creates a new `handleClick`, child thinks props changed, child re-renders. You added `React.memo` for nothing.
 
-1. **Only call hooks at top level** - Not in loops/conditions
-2. **Use dependency arrays** - Prevent unnecessary re-renders
-3. **Cleanup effects** - Prevent memory leaks
-4. **Create custom hooks** - Reuse logic
-5. **Use useMemo/useCallback** - Optimize performance
-6. **Follow naming convention** - Start with "use"
-7. **Extract complex logic** - Keep components simple
-8. **Test hooks** - Use React Testing Library
+My rule of thumb in 2019: don't reach for these until you measure a problem. Premature memoization makes code harder to read for marginal gains.
 
-## Common Patterns
+## Patterns That Survive Production
 
-### Form Handling
+### Form Handling Hook
+
+Forms are where hooks really shine — controlled inputs with clean handlers:
 
 ```javascript
 function useForm(initialValues) {
@@ -449,16 +499,36 @@ function LoginForm() {
 }
 ```
 
-## Conclusion
+Extract this once, use it in every form. Your login page, settings page, and checkout flow all share the same behavior.
 
-React Hooks enable:
-- Functional components with state
-- Reusable logic
-- Better performance
-- Cleaner code
+## What I Learned the Hard Way
 
-Start with useState and useEffect, then explore custom hooks. The patterns shown here work for production applications.
+**Hooks belong at the top level.** Putting `useState` inside an `if` block works until it doesn't, and when it doesn't, the error messages are cryptic enough to make you consider Vue.
+
+**Dependency arrays are a feature, not bureaucracy.** The exhaustive-deps ESLint rule annoyed everyone in 2019. It also prevented an entire category of stale-closure bugs. Enable it. Apologize to your past self.
+
+**Cleanup is not optional.** Timers, subscriptions, and fetch requests all need teardown. React 18's Strict Mode will mount, unmount, and remount your components in development specifically to catch missing cleanup. It's annoying and correct.
+
+**Custom hooks are the real product.** `useState` and `useEffect` are primitives. Custom hooks are where your team's conventions live — how you fetch data, handle forms, manage auth, track analytics. Invest there.
+
+**Don't memoize everything.** Profile first. Most re-renders are cheap. The ones that aren't usually point to a design problem — too much state in the wrong place, context values that change too often, components doing too many jobs.
+
+**Test hooks with React Testing Library.** Render the component that uses the hook, interact with it like a user would, assert on DOM output. Testing hooks in isolation is possible but usually unnecessary.
+
+## Where to Start
+
+If you're migrating from class components in 2019, here's a sane progression:
+
+1. **Start with `useState` and `useEffect`** — they cover 80% of what you were doing with classes
+2. **Extract custom hooks** the moment you copy-paste the same logic twice
+3. **Add `useContext`** when prop drilling makes you miserable
+4. **Reach for `useReducer`** when state transitions get complicated
+5. **Optimize last** with `useMemo`/`useCallback` only after you measure
+
+Hooks didn't kill class components because they were trendy. They won because they made stateful logic composable in a way classes never could. Once the dependency array clicks, you'll wonder how you tolerated `this.setState` for so long.
+
+Just... maybe don't deploy your first `useEffect` on a Friday afternoon.
 
 ---
 
-*React Hooks complete guide from July 2019, covering React 16.8+ features.*
+*Written July 2019, covering React 16.8+ hooks. The API has evolved since (React 18 concurrent features, stricter Strict Mode), but these patterns remain the foundation of modern React development.*

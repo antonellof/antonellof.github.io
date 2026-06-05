@@ -4,157 +4,242 @@ title: "Architectural Decision Records: Documenting Key Decisions"
 date: 2021-12-20
 categories: [Architecture]
 tags: [ADR, Documentation, Architecture]
-excerpt: "Document architectural decisions with ADRs. Learn the ADR format, when to create them, and how to maintain a decision log for your team."
+excerpt: "Six months later, nobody remembered why we chose PostgreSQL over DynamoDB. ADRs capture the context, the trade-offs, and the 'we considered X but rejected it because' that wiki pages never preserve."
 ---
 
-ADRs document important architectural decisions. After using ADRs in production, here's how to create and maintain them effectively.
+"Why did we use PostgreSQL instead of DynamoDB?"
 
-## What are ADRs?
+Silence in the meeting. Someone said "I think Dave decided that." Dave left the company four months ago. The wiki page titled "Database Decision" was empty—someone created it, nobody wrote anything. We were debating migrating to DynamoDB based on a cost spreadsheet, without knowing what constraints led to the original choice.
 
-ADRs:
-- **Document decisions** - Why, not just what
-- **Context** - Situation and constraints
-- **Consequences** - Trade-offs and impacts
-- **History** - Decision timeline
+This happens constantly. Teams make reasonable decisions with good context, then the context evaporates. People leave. Memories fade. New engineers question decisions without understanding the trade-offs that shaped them. Re-litigating settled questions wastes weeks.
 
-## ADR Format
+Architectural Decision Records (ADRs) fix this. Short documents capturing **why** a decision was made, not just what was decided. I learned about them through [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) and they've become non-negotiable on every team I lead.
 
-### Template
+## What an ADR Is
+
+An ADR is a markdown file that records a significant architectural decision:
+
+- **Context** — what situation forced a decision
+- **Decision** — what we chose
+- **Consequences** — what we gain and what we sacrifice
+- **Alternatives** — what else we considered and why we rejected it
+
+ADRs are immutable once accepted. If a decision changes, write a new ADR that supersedes the old one. The history remains—you can trace how thinking evolved.
+
+They're not design docs (too detailed), not meeting notes (too unstructured), not wiki pages (too often empty). One decision per ADR. Two pages max. Five minutes to read.
+
+## The Template
 
 ```markdown
-# ADR-001: Use PostgreSQL for Primary Database
+# ADR-001: Use PostgreSQL as Primary Database
 
 ## Status
 Accepted
 
+## Date
+2021-03-15
+
 ## Context
-We need to choose a primary database for our application.
-Requirements:
-- ACID transactions
-- Complex queries
-- Relational data
-- Strong consistency
+We're building an e-commerce platform that needs:
+- ACID transactions for orders and payments
+- Complex queries (reporting, search, joins across entities)
+- Strong consistency for inventory management
+- Team has deep PostgreSQL experience
+
+We're expecting ~10K orders/day initially, scaling to 100K/day within 2 years.
 
 ## Decision
-We will use PostgreSQL as our primary database.
+We will use PostgreSQL (AWS RDS) as our primary transactional database.
 
 ## Consequences
 
 ### Positive
-- ACID compliance
-- Rich feature set
-- Strong community
-- Proven reliability
+- ACID transactions for order processing
+- Rich query capabilities for reporting and analytics
+- Team productivity — no learning curve
+- Mature ecosystem (extensions, tooling, hosting)
+- Point-in-time recovery and automated backups via RDS
 
 ### Negative
-- Requires expertise
-- Vertical scaling limits
-- More complex than NoSQL
+- Vertical scaling limits — will need read replicas and connection pooling
+- Operational overhead compared to managed NoSQL
+- Schema migrations require planning and tooling
+- Not ideal for high-write, simple-key workloads (we'll use Redis for sessions)
 
 ## Alternatives Considered
-- MySQL: Less features
-- MongoDB: No ACID transactions
-- DynamoDB: Vendor lock-in
+
+### DynamoDB
+- **Pros:** Serverless scaling, pay-per-use, AWS-native
+- **Rejected because:** Complex queries require GSIs that are hard to predict upfront.
+  Reporting needs ad-hoc joins. Team lacks DynamoDB data modeling experience.
+  Transaction support was limited at decision time.
+
+### MongoDB
+- **Pros:** Flexible schema, horizontal scaling, document model
+- **Rejected because:** Multi-document ACID was new and unproven for our use case.
+  Team more experienced with relational models. Join-heavy reporting queries
+  would require application-level denormalization.
+
+### MySQL
+- **Pros:** Similar to PostgreSQL, wide hosting support
+- **Rejected because:** PostgreSQL has better JSON support, richer extensions
+  (PostGIS, full-text search), and partial indexes we anticipate needing.
 ```
 
-## When to Create ADRs
+That's a complete ADR. Future engineers reading this understand the constraints, the trade-offs, and why DynamoDB wasn't chosen—even if DynamoDB has improved since.
 
-### Create ADRs For:
+## When to Write an ADR
 
-- **Technology choices** - Databases, frameworks
-- **Architecture patterns** - Microservices, monolith
-- **Design decisions** - API design, data models
-- **Process changes** - Deployment, testing
+### Write ADRs for:
 
-### Don't Create ADRs For:
+- **Technology choices** — database, message queue, cloud provider, framework
+- **Architecture patterns** — microservices vs monolith, event sourcing, CQRS
+- **API design** — REST vs GraphQL, versioning strategy, authentication approach
+- **Infrastructure** — Kubernetes vs serverless, multi-region strategy
+- **Process decisions** — branching strategy, deployment approach, testing philosophy
 
-- **Implementation details** - Code-level decisions
-- **Temporary decisions** - Short-term fixes
-- **Obvious choices** - No alternatives
+### Skip ADRs for:
 
-## ADR Examples
+- **Implementation details** — which sorting algorithm, variable naming
+- **Temporary workarounds** — use a ticket, not an ADR
+- **Obvious choices** — "we'll use Git for version control"
+- **Reversible decisions** — if you can change it in an afternoon without blast radius
 
-### Technology Choice
+**The test:** will someone in 12 months ask "why did we do it this way?" If yes, write an ADR.
+
+## ADR Lifecycle
+
+### Status Values
+
+| Status | Meaning |
+|--------|---------|
+| **Proposed** | Under discussion, not yet decided |
+| **Accepted** | Decision made, implementing |
+| **Deprecated** | No longer relevant, but not replaced |
+| **Superseded** | Replaced by a newer ADR (link to it) |
 
 ```markdown
-# ADR-002: Use React for Frontend
+# ADR-003: Migrate from REST to GraphQL for Public API
 
 ## Status
-Accepted
+Supersedes [ADR-002: Use REST for Public API](./0002-use-rest-for-public-api)
 
 ## Context
-We need to choose a frontend framework for our web application.
-
-## Decision
-Use React with TypeScript.
-
-## Consequences
-- Large ecosystem
-- Strong typing
-- Component reusability
-- Learning curve
+Since ADR-002, our mobile clients have grown to 3 apps with different data
+needs. Over-fetching and multiple round-trips are causing performance issues...
 ```
 
-### Architecture Pattern
+The superseded ADR stays in the repo with updated status. History is preserved.
 
-```markdown
-# ADR-003: Microservices Architecture
-
-## Status
-Accepted
-
-## Context
-Application is growing, monolith becoming hard to maintain.
-
-## Decision
-Migrate to microservices architecture.
-
-## Consequences
-- Independent scaling
-- Technology diversity
-- Increased complexity
-- Network overhead
-```
-
-## ADR Management
-
-### File Structure
+## File Organization
 
 ```
 docs/
   adr/
     0001-use-postgresql.md
-    0002-use-react.md
-    0003-microservices.md
+    0002-use-rest-for-public-api.md
+    0003-migrate-to-graphql.md
+    README.md          # Index of all ADRs with status
 ```
 
-### Status Values
+```markdown
+# ADR Index
 
-- **Proposed** - Under consideration
-- **Accepted** - Decision made
-- **Deprecated** - Replaced
-- **Superseded** - By another ADR
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| 001 | Use PostgreSQL | Accepted | 2021-03-15 |
+| 002 | Use REST for Public API | Superseded by 003 | 2021-05-20 |
+| 003 | Migrate to GraphQL | Accepted | 2021-11-10 |
+```
 
-## Best Practices
+Number sequentially. Never renumber (references break). Store in git alongside code—ADRs are versioned with the project.
 
-1. **Number ADRs** - Sequential numbering
-2. **Keep focused** - One decision per ADR
-3. **Update status** - Track changes
-4. **Link related** - Reference other ADRs
-5. **Review regularly** - Keep current
-6. **Make accessible** - Easy to find
-7. **Include context** - Why, not just what
-8. **Document consequences** - Trade-offs
+## Real Examples
+
+### Framework Choice
+
+```markdown
+# ADR-004: Use React with TypeScript for Frontend
+
+## Status
+Accepted
+
+## Context
+Building a complex dashboard with real-time updates, 20+ screens,
+and a team of 4 frontend developers.
+
+## Decision
+React 18 with TypeScript, Vite for bundling, TanStack Query for server state.
+
+## Consequences
+- Positive: Large ecosystem, team experience, TypeScript catches bugs early
+- Negative: Bundle size, need discipline to avoid prop drilling (use context/stores)
+
+## Alternatives Considered
+- Vue 3: Less team experience, smaller enterprise ecosystem
+- Angular: Heavier framework, steeper learning curve for team
+- Svelte: Smaller ecosystem, fewer enterprise-ready component libraries
+```
+
+### Process Decision
+
+```markdown
+# ADR-005: Trunk-Based Development with Feature Flags
+
+## Status
+Accepted
+
+## Context
+GitFlow is causing merge conflicts and long-lived branches. Releases take
+2 weeks. We deploy to production multiple times daily.
+
+## Decision
+Trunk-based development: all work on main, feature flags for incomplete features.
+
+## Consequences
+- Positive: Smaller PRs, faster integration, continuous deployment
+- Negative: Feature flag overhead, need flag management tooling (LaunchDarkly)
+```
+
+## Making ADRs Stick
+
+**What worked:**
+- ADRs required in PRs for architectural changes (CI check or review convention)
+- Template in repo (`docs/adr/template.md`) — copy, fill in, PR
+- Review ADRs in architecture meetings (15 min, not 60)
+- Link ADRs from relevant code (`// See ADR-001 for database choice`)
+
+**What didn't work:**
+- Mandating ADRs for everything (fatigue)
+- Long, detailed ADRs (nobody reads 10-page documents)
+- ADRs in Confluence (separate from code, not versioned, gets stale)
+- Writing ADRs after the fact months later (context is gone)
+
+**Sweet spot:** 2-5 ADRs per quarter. Significant decisions only. Written at decision time, not retrospectively.
+
+## Tools
+
+- **[adr-tools](https://github.com/npryce/adr-tools)** — CLI for creating ADRs from template
+- **[log4brains](https://github.com/thomastrauner/log4brains)** — ADR knowledge base with web UI
+- **Git** — the versioning system; ADRs live in the repo
+
+```bash
+# adr-tools
+adr new "Use PostgreSQL as Primary Database"
+adr generate toc > docs/adr/README.md
+```
 
 ## Conclusion
 
-ADRs provide:
-- Decision history
-- Context preservation
-- Team alignment
-- Knowledge sharing
+The PostgreSQL vs DynamoDB question that stumped the meeting? An ADR would have answered it in two minutes. Context, constraints, alternatives, trade-offs—all preserved from the day we decided.
 
-Start documenting important decisions. The format shown here captures decision context effectively.
+ADRs aren't bureaucracy. They're empathy for your future teammates—the ones who weren't in the room, who join next year, who inherit your decisions and deserve to understand them.
+
+Write the context. Document the alternatives you rejected. Be honest about negative consequences. Store it in git. Link it when the question comes up again.
+
+Six months from now, you'll ask "why did we do it this way?" With ADRs, you'll have an answer. Without them, you'll have a debate that wastes a week re-litigating a decision someone already made correctly—the first time, with context nobody wrote down.
+
+Start with one ADR for your next significant decision. See if it saves a meeting in six months.
 
 ---
 

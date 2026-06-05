@@ -4,14 +4,20 @@ title: "Social Media API Integration: Best Practices"
 date: 2017-10-08
 categories: [How-To]
 tags: [API Integration, Social Media, OAuth, Webhooks]
-excerpt: "Integrating with social media APIs including Facebook, Twitter, Instagram, and LinkedIn. Covering OAuth flows, rate limits, webhooks, and error handling."
+excerpt: "Four platforms, four OAuth flows, four sets of rate limits — and one unified approach that kept us from getting banned."
 ---
 
-Integrating with social media APIs is essential for modern applications. After building integrations with Facebook, Twitter, Instagram, and LinkedIn, here's what works in production.
+The product manager's pitch was simple: "Users connect their social accounts, we post for them, everyone wins." What they didn't mention was that Facebook, Twitter, Instagram, and LinkedIn each have their own OAuth dialect, their own rate limit philosophy, and their own creative interpretation of API documentation.
 
-## OAuth 2.0 Flow
+Our first integration posted successfully to Facebook and then silently failed on Twitter for three days because we'd stored an expired token and assumed the API would tell us nicely. It did tell us. We weren't listening.
 
-### Authorization Code Flow
+After building integrations with all four major platforms and surviving millions of API calls, here's the architecture that kept us authenticated, rate-limited, and out of platform jail.
+
+## OAuth 2.0: The Authorization Code Tango
+
+Every platform implements OAuth slightly differently, but the authorization code flow is the common backbone. User clicks "Connect," gets redirected to the platform, approves access, comes back with a code you exchange for tokens.
+
+### Facebook's Flow (Graph API v2.10)
 
 ```javascript
 // Step 1: Redirect to authorization URL
@@ -60,9 +66,13 @@ app.get('/auth/facebook/callback', async (req, res) => {
 });
 ```
 
-## Token Management
+The `state` parameter isn't optional decoration. It's CSRF protection. Generate it, store it server-side, validate it on callback. Skip this and you're building a "let attackers connect victim accounts" feature.
 
-### Token Storage
+## Token Management: Where Integrations Go to Die
+
+Tokens expire. Refresh tokens expire (sometimes). Users revoke access from the platform's settings page and your app finds out via a 401 at 2 a.m.
+
+### A Token Manager That Handles Reality
 
 ```javascript
 class TokenManager {
@@ -109,9 +119,11 @@ class TokenManager {
 }
 ```
 
-## Facebook Graph API
+Never store tokens in localStorage on the client. Encrypt at rest in your database. Treat tokens like passwords — because they basically are.
 
-### Posting to Facebook
+Refresh proactively, not reactively. Check expiry before every API call, not after the 401. Users notice failed posts; they don't notice a background token refresh.
+
+## Facebook Graph API: Pages, Posts, and Permissions
 
 ```javascript
 class FacebookAPI {
@@ -161,9 +173,11 @@ class FacebookAPI {
 }
 ```
 
-## Twitter API
+Facebook's error responses are actually helpful — read `error.error.message`, log `error.error.code`, and build your retry logic around specific error types, not generic "something failed."
 
-### Posting Tweets
+## Twitter: OAuth 1.0a, Because Why Make It Easy
+
+Twitter still used OAuth 1.0a for API calls in 2017. If you've never signed requests with HMAC-SHA1, consider yourself lucky. If you have, you understand why libraries exist.
 
 ```javascript
 const OAuth = require('oauth-1.0a');
@@ -243,9 +257,11 @@ class TwitterAPI {
 }
 ```
 
-## Instagram API
+Media uploads are a two-step dance: upload the binary, get a `media_id`, attach it to the tweet. Skip the upload step and you'll post text-only tweets wondering where your images went.
 
-### Posting Photos
+## Instagram: The Plot Twist (It's Facebook Now)
+
+Instagram's API landscape in 2017 was... evolving. Business accounts posted through the Facebook Graph API, not a standalone Instagram endpoint.
 
 ```javascript
 class InstagramAPI {
@@ -291,9 +307,9 @@ class InstagramAPI {
 }
 ```
 
-## LinkedIn API
+Create container, then publish. Two API calls for one photo. Instagram's API has always had opinions about how content gets published.
 
-### Posting Updates
+## LinkedIn: UGC Posts and REST.li Headers
 
 ```javascript
 class LinkedInAPI {
@@ -335,9 +351,13 @@ class LinkedInAPI {
 }
 ```
 
-## Rate Limiting
+LinkedIn's payload structure is verbose. The `X-Restli-Protocol-Version` header is mandatory. Forget it and you'll get errors that don't obviously point to the missing header.
 
-### Rate Limit Handler
+## Rate Limiting: The Universal Constraint
+
+Every platform rate-limits differently. Twitter measures in 15-minute windows. LinkedIn gives you a daily budget. Exceed any of them and you're not posting — you're waiting.
+
+### Centralized Rate Limit Manager
 
 ```javascript
 class RateLimitManager {
@@ -384,7 +404,13 @@ async function postToFacebook(message) {
 }
 ```
 
-## Webhook Handling
+Track limits per platform, per endpoint. A global counter is better than nothing, but Twitter's tweet limit and Twitter's media upload limit are different animals.
+
+Respect `Retry-After` headers from the platforms themselves — they're more accurate than your estimates.
+
+## Webhooks: Let the Platforms Come to You
+
+Polling for new messages is how you burn rate limits and annoy platform trust-and-safety teams. Webhooks flip the model: they push events to you.
 
 ### Facebook Webhooks
 
@@ -426,7 +452,9 @@ function handleMessage(event) {
 }
 ```
 
-### Twitter Webhooks
+Verify signatures before processing. Unverified webhooks are an open endpoint for anyone who guesses your URL.
+
+### Twitter Webhooks (CRC Challenge)
 
 ```javascript
 app.post('/webhooks/twitter', (req, res) => {
@@ -457,7 +485,9 @@ app.post('/webhooks/twitter', (req, res) => {
 });
 ```
 
-## Error Handling
+Twitter's CRC handshake trips up everyone the first time. Handle the `crc_token` query parameter before you handle actual events, or webhook registration fails silently.
+
+## Error Handling: Retry Smart, Not Hard
 
 ```javascript
 class SocialMediaAPI {
@@ -498,28 +528,26 @@ class SocialMediaAPI {
 }
 ```
 
-## Best Practices
+401 → refresh token and retry once. 429 → queue and back off. 5xx → exponential retry with jitter. 4xx (except 429) → don't retry; you broke something.
 
-1. **Store tokens securely** - Encrypt at rest
-2. **Handle token refresh** - Automatically refresh expired tokens
-3. **Respect rate limits** - Implement rate limiting
-4. **Handle webhooks** - Verify signatures
-5. **Error handling** - Retry with exponential backoff
-6. **Monitor API usage** - Track calls and errors
-7. **Cache responses** - Reduce API calls
-8. **Use webhooks** - Instead of polling
+Blind retries on 400 errors just hammer the API with the same bad request. Learned that one the embarrassing way.
 
-## Conclusion
+## What We Wish We'd Known on Day One
 
-Social media API integration requires:
-- Proper OAuth implementation
-- Token management
-- Rate limit handling
-- Webhook processing
-- Robust error handling
+Store tokens encrypted, refresh them proactively, and never trust a token that "worked yesterday." Build one abstraction layer per platform behind a common interface — your product code shouldn't know whether it's talking to OAuth 1.0a or 2.0.
 
-Start with one platform, get it right, then expand. The patterns shown here handle millions of API calls in production.
+Rate limit before you call, not after you get blocked. Verify webhook signatures religiously. Log every API call with platform, endpoint, status code, and latency — when a platform changes their API (and they will), those logs are your forensic evidence.
+
+Cache read-heavy responses (user profiles, page metadata) to stay under rate limits. Use webhooks for inbound events instead of polling. When something fails, queue it for retry rather than dropping it on the floor.
+
+## The Bottom Line
+
+Social media API integration isn't one integration — it's four (or more) integrations wearing a trench coat. OAuth flows differ, auth schemes differ, rate limits differ, and error formats differ.
+
+Start with one platform. Get tokens, posting, and error handling solid. Then add the next. The unified patterns — token manager, rate limiter, webhook handler, retry queue — are where the real engineering lives.
+
+The patterns here handled millions of API calls in production. Not because we mastered every platform quirk on day one, but because we built infrastructure that absorbed those quirks instead of scattering platform-specific hacks through the codebase.
 
 ---
 
-*Social media API integration patterns from October 2017, covering Facebook, Twitter, Instagram, and LinkedIn APIs.*
+*Written October 2017. API versions, endpoints, and auth schemes reflect that era — Facebook Graph v2.10, Twitter API v1.1, Instagram via Graph API. Platforms have changed substantially since; verify current docs before building.*

@@ -4,23 +4,28 @@ title: "gRPC: High-Performance RPC Framework"
 date: 2019-04-25
 categories: [How-To]
 tags: [gRPC, RPC, Performance, Microservices]
-excerpt: "Build high-performance microservices with gRPC. Learn protocol buffers, streaming, error handling, and production patterns for inter-service communication."
+excerpt: "REST was fine until our services started gossiping in JSON like it was a book club. gRPC gave us typed contracts, HTTP/2 multiplexing, and fewer 3am 'field name changed' incidents."
 ---
 
-gRPC provides high-performance RPC for microservices. After building production gRPC services, here's how to use it effectively.
+Our microservices were "communicating." What they were actually doing was sending JSON over HTTP/1.1, parsing strings into objects, hoping field names matched, and retrying when they didn't.
 
-## What is gRPC?
+It worked—until we had fifty internal endpoints and versioning became a game of "who broke the contract this time?" REST is great for public APIs humans curl from documentation. For **service-to-service chatter at scale**, we wanted something faster, stricter, and less interpretive dance.
 
-gRPC is:
-- **Language-agnostic** RPC framework
-- Uses **Protocol Buffers** for serialization
-- **HTTP/2** based
-- **Streaming** support
-- **Type-safe** contracts
+Enter gRPC: Google's RPC framework that uses Protocol Buffers for serialization and HTTP/2 for transport. Binary payloads. Strong contracts. Streaming when you need it. In 2019 it was already battle-tested inside Google; by the time we adopted it, the open-source ecosystem had caught up enough for mere mortals.
 
-## Protocol Buffers
+## What gRPC actually gives you
 
-### Define Service
+- **Language-agnostic** — generate clients and servers from the same `.proto` file
+- **Protocol Buffers** — compact binary serialization (smaller and faster than JSON for most payloads)
+- **HTTP/2** — multiplexed connections, header compression, one TCP connection for many RPCs
+- **Streaming** — server, client, and bidirectional streams for real-time patterns
+- **Type-safe contracts** — the schema is the API; drift shows up at compile time, not in production
+
+If your services talk to each other more than they talk to browsers, gRPC deserves a serious look.
+
+## Define the contract first (always)
+
+Everything starts with a `.proto` file. This is your API constitution:
 
 ```protobuf
 // user.proto
@@ -66,16 +71,16 @@ message User {
 }
 ```
 
-## Node.js Server
+Field numbers are permanent. Renaming `user_id` to `id` is fine; reusing field number `1` for a different type is how you summon backward-compatibility demons. Treat `.proto` changes like database migrations—review carefully.
 
-### Installation
+Generate code with `protoc` and language plugins. The generated stubs are boring; that's the point.
+
+## Node.js server
 
 ```bash
 npm install @grpc/grpc-js @grpc/proto-loader
 npm install -D grpc-tools
 ```
-
-### Server Implementation
 
 ```javascript
 const grpc = require('@grpc/grpc-js');
@@ -152,7 +157,9 @@ server.bindAsync('0.0.0.0:50051', grpc.ServerCredentials.createInsecure(), () =>
 });
 ```
 
-## Node.js Client
+`createInsecure()` is fine for localhost. Production gets TLS. We'll come back to that.
+
+## Node.js client
 
 ```javascript
 const grpc = require('@grpc/grpc-js');
@@ -192,10 +199,13 @@ stream.on('end', () => {
 });
 ```
 
-## Python Server
+Reuse the client. HTTP/2 connection pooling is built in—creating a new client per request defeats half the performance win.
+
+## Python server
 
 ```python
 import grpc
+import time
 from concurrent import futures
 import user_pb2
 import user_pb2_grpc
@@ -256,9 +266,11 @@ if __name__ == '__main__':
     serve()
 ```
 
-## Streaming
+Thread pool sizing matters. Too few workers and unary RPCs queue; too many and you context-switch into sadness.
 
-### Server-Side Streaming
+## Streaming: when one request/response isn't enough
+
+### Server-side streaming (server pushes many messages)
 
 ```protobuf
 rpc StreamUsers(StreamUsersRequest) returns (stream User);
@@ -282,7 +294,9 @@ function streamUsers(call) {
 }
 ```
 
-### Client-Side Streaming
+Great for feeds, live updates, large result sets you don't want to buffer in memory.
+
+### Client-side streaming (client sends many, server responds once)
 
 ```protobuf
 rpc CreateUsers(stream CreateUserRequest) returns (CreateUsersResponse);
@@ -308,7 +322,9 @@ function createUsers(call, callback) {
 }
 ```
 
-### Bidirectional Streaming
+Bulk uploads, log ingestion, "here's a thousand records, tell me when you're done."
+
+### Bidirectional streaming (both sides talk)
 
 ```protobuf
 rpc Chat(stream ChatMessage) returns (stream ChatMessage);
@@ -331,7 +347,11 @@ function chat(call) {
 }
 ```
 
-## Error Handling
+Chat, collaborative editing, real-time gaming—anywhere both ends have something to say.
+
+## Error handling (use status codes, not string vibes)
+
+gRPC has a rich status model. Use it:
 
 ```javascript
 function getUser(call, callback) {
@@ -362,9 +382,13 @@ client.getUser({ user_id: '999' }, (error, user) => {
 });
 ```
 
-## Interceptors
+Map domain errors to `NOT_FOUND`, `INVALID_ARGUMENT`, `ALREADY_EXISTS`, etc. Your clients—and your observability—will thank you.
 
-### Server Interceptor
+## Interceptors: middleware for RPC
+
+Cross-cutting concerns belong in interceptors, not copy-pasted into every handler.
+
+### Server interceptor
 
 ```javascript
 const interceptor = (options, nextCall) => {
@@ -393,7 +417,7 @@ const server = new grpc.Server();
 server.use(interceptor);
 ```
 
-### Client Interceptor
+### Client interceptor
 
 ```javascript
 const interceptor = (options, nextCall) => {
@@ -412,27 +436,45 @@ const client = new userProto.UserService(
 );
 ```
 
-## Best Practices
+Auth tokens, request IDs, logging, retries with backoff—interceptors are where they live.
 
-1. **Use Protocol Buffers** - Efficient serialization
-2. **Handle errors properly** - Use gRPC status codes
-3. **Use streaming** - For large datasets
-4. **Implement timeouts** - Prevent hanging calls
-5. **Use interceptors** - For logging/auth
-6. **Version services** - Support multiple versions
-7. **Monitor performance** - Track latency/errors
-8. **Use connection pooling** - Reuse connections
+## Production lessons
 
-## Conclusion
+**Protobuf efficiency is real** but not magic. Tiny payloads won't notice; large nested structures and high QPS will.
 
-gRPC provides:
-- High performance
-- Type safety
-- Streaming support
-- Language interoperability
+**Handle errors with gRPC status codes**, not ad-hoc error fields in every message. Consistency scales across services.
 
-Use gRPC for inter-service communication in microservices. The patterns shown here handle production workloads.
+**Use streaming for large or live data** instead of paginating yourself into latency hell.
+
+**Set deadlines/timeouts on every call.** A hung upstream shouldn't hang your entire fleet. Clients should pass context with timeout; servers should respect cancellation.
+
+**Interceptors for auth and observability** keep handlers focused on business logic.
+
+**Version services explicitly**—package names, service names, or separate endpoints. "We'll just add fields" works until it doesn't.
+
+**Monitor RPC latency and error rates** per method. Prometheus gRPC middleware exists for most languages.
+
+**Reuse connections.** One client instance per upstream service, not per request.
+
+## When gRPC vs REST?
+
+| Use gRPC | Stick with REST |
+|----------|-----------------|
+| Internal service mesh | Browser-facing public APIs |
+| High-throughput RPC | Simple CRUD with wide tooling support |
+| Strong contracts across teams | Third-party integrations expecting JSON |
+| Streaming workloads | Webhooks and human-debuggable curl |
+
+Many teams run both: gRPC inside the cluster, REST/GraphQL at the edge via a gateway (grpc-gateway, Envoy, etc.).
+
+## The bottom line
+
+gRPC won't fix a bad service boundary. It will make the boundary **explicit, fast, and harder to accidentally break**—which, after enough JSON schema surprises, feels like luxury.
+
+Start with one internal service pair. Define the `.proto`, generate code, wire unary RPCs, add TLS before production, then explore streaming where it actually helps.
+
+Your 3am pages will still happen. They'll just involve fewer "unexpected token" errors.
 
 ---
 
-*gRPC high-performance RPC from April 2019, covering gRPC 1.20+ features.*
+*Written April 2019, covering gRPC 1.20+ and @grpc/grpc-js. gRPC-Web, service mesh integration, and tooling have matured since; typed contracts and HTTP/2 transport remain the core value.*

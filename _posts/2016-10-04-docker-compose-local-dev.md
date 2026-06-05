@@ -4,28 +4,38 @@ title: "Docker Compose for Local Development Environments"
 date: 2016-10-04
 categories: [How-To]
 tags: [Docker, Docker Compose, DevOps, Development]
-excerpt: "Set up complete local development environments with Docker Compose, including multi-service applications, database seeding, hot reloading, and team collaboration workflows."
+excerpt: "New hire on day one: four hours installing MySQL, Redis, and the right Postgres version. After Docker Compose: git clone, docker-compose up, start coding. Here's how we killed 'works on my machine.'"
 ---
 
-Docker Compose revolutionized how we set up local development environments. No more "works on my machine" issues or spending hours configuring databases, Redis, and other services. Here's how we use Docker Compose to create reproducible, isolated development environments that work identically for every team member.
+New engineer. Day one. Enthusiastic. Ready to ship.
 
-## Why Docker Compose for Development?
+Four hours later, they're still installing PostgreSQL 9.6 because the app doesn't work on 9.5, configuring Redis, debugging a Node version mismatch, and quietly wondering if they chose the wrong company.
 
-Before Docker Compose, setting up a local environment meant:
-- Installing MySQL, PostgreSQL, Redis manually
-- Configuring each service separately
-- Dealing with version conflicts
-- Different setups across team members
+Meanwhile, the senior dev's machine "just works" because they set it up in 2014 and haven't thought about it since. Different patch versions. Different env vars. Different `/etc/hosts` hacks. The classic "works on my machine" trap — except now it's institutionalized across the team.
 
-Docker Compose solves this with:
-- One command to start everything
-- Consistent environments across team
-- Easy service isolation
-- Simple cleanup
+Docker Compose fixed this for us. One `docker-compose up` and everyone runs the same Postgres, same Redis, same service topology. Onboarding dropped from half a day to twenty minutes. "Works on my machine" became "works on everyone's machine, because it's the same machine, virtually."
 
-## Basic Docker Compose Setup
+Here's how we built local dev environments that actually reproduce production — without reproducing production's complexity on day one.
 
-### Simple Multi-Service Application
+## What Compose Gives You
+
+Before Compose, local setup was artisanal:
+
+- Install databases manually, hope versions match
+- Configure each service in isolation
+- Fight port conflicts with whatever else is running
+- Document the setup in a wiki that was wrong by Tuesday
+
+Compose replaces that with a YAML file that *is* the documentation:
+
+- One command starts the full stack
+- Every developer gets identical services
+- Cleanup is `docker-compose down -v`, not "reinstall Postgres"
+- Production-like topology without production-like AWS bills
+
+## The Starter Stack
+
+A web app, a database, a cache. The holy trinity:
 
 ```yaml
 # docker-compose.yml
@@ -65,15 +75,15 @@ volumes:
   redis_data:
 ```
 
-Start everything:
-
 ```bash
 docker-compose up -d
 ```
 
-## Development vs Production Configs
+That's it. Web on 8000, Postgres on 5432, Redis on 6379. New hire runs two commands: `git clone`, `docker-compose up -d`. They're coding before lunch.
 
-### Development Configuration
+## Dev vs. Prod: Same Services, Different Hats
+
+Don't maintain two completely separate compose files. Use a base file and overrides:
 
 ```yaml
 # docker-compose.dev.yml
@@ -103,8 +113,6 @@ services:
       - "6379:6379"
 ```
 
-### Production Configuration
-
 ```yaml
 # docker-compose.prod.yml
 version: '3.8'
@@ -130,8 +138,6 @@ secrets:
     file: ./secrets/db_password.txt
 ```
 
-Usage:
-
 ```bash
 # Development
 docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
@@ -140,9 +146,11 @@ docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
 ```
 
-## Full-Stack Application Example
+Dev exposes ports for local DB clients and enables hot reload. Prod uses secrets and restart policies. Same service names, different behavior. The `/app/node_modules` anonymous volume is critical — without it, your bind mount overwrites `node_modules` with your host's (possibly empty, possibly wrong-architecture) directory.
 
-### Laravel + Vue.js + PostgreSQL
+## Full-Stack Reality: Laravel + Vue + Workers
+
+Real apps aren't one container. Here's a stack that mirrors production:
 
 ```yaml
 # docker-compose.yml
@@ -219,9 +227,11 @@ volumes:
   redis_data:
 ```
 
-## Database Seeding and Migrations
+Including the queue worker locally catches job serialization bugs before they hit staging. "It worked in tinker" is not the same as "it worked when dispatched to a worker."
 
-### Automatic Setup
+## Database Seeding Without Manual Steps
+
+Init scripts run on first container start. Migrations and seeds run on demand:
 
 ```yaml
 services:
@@ -255,14 +265,14 @@ services:
       - tools
 ```
 
-Run migrations:
-
 ```bash
 docker-compose --profile tools up migrate
 docker-compose --profile tools up seed
 ```
 
-## Hot Reloading Setup
+Profiles keep one-off tasks out of the default `docker-compose up`. You don't want migrations running every time someone starts their laptop.
+
+## Hot Reload: Edit Code, See Changes
 
 ### Node.js with Nodemon
 
@@ -293,7 +303,7 @@ services:
     command: watchmedo auto-restart --directory=/app --pattern="*.py" --recursive -- python /app/main.py
 ```
 
-### PHP with Polling
+### PHP: Opcache Timestamps
 
 ```yaml
 services:
@@ -304,9 +314,9 @@ services:
       - PHP_OPCACHE_VALIDATE_TIMESTAMPS=1  # Check for changes
 ```
 
-## Networking Between Services
+Bind mounts sync source instantly. The reload mechanism depends on your runtime. PHP needs opcache configured to check timestamps in dev — otherwise you're restarting containers to see a semicolon change.
 
-### Custom Networks
+## Networking: Services Find Each Other by Name
 
 ```yaml
 version: '3.8'
@@ -333,10 +343,6 @@ networks:
     internal: true  # No external access
 ```
 
-### Service Discovery
-
-Services can communicate using service names:
-
 ```python
 # In your application
 import os
@@ -347,9 +353,9 @@ db_port = 5432
 # Docker Compose resolves 'db' to the db service IP
 ```
 
-## Environment Variables
+Use service names as hostnames. `DB_HOST=db`, not `DB_HOST=localhost`. `localhost` inside a container is the container itself, not your machine, not the database. This confuses everyone exactly once.
 
-### Using .env File
+## Environment Variables: .env Files Save Marriages
 
 ```bash
 # .env
@@ -368,16 +374,6 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
 ```
 
-### Environment-Specific Files
-
-```bash
-# .env.development
-DB_PASSWORD=dev_secret
-
-# .env.production
-DB_PASSWORD=prod_secret
-```
-
 ```yaml
 services:
   web:
@@ -385,7 +381,11 @@ services:
       - .env.${ENV:-development}
 ```
 
-## Health Checks
+Commit `.env.example`. Gitignore `.env`. Every new hire copies one file instead of interrogating Slack for secrets.
+
+## Health Checks: Don't Start Web Before DB Is Ready
+
+`depends_on` waits for the container to *start*, not for the service to be *ready*. Postgres takes a few seconds to accept connections. Your app crashes immediately. You blame Docker. Docker is innocent.
 
 ```yaml
 services:
@@ -411,8 +411,6 @@ services:
       timeout: 3s
 ```
 
-Use health checks in dependencies:
-
 ```yaml
 services:
   web:
@@ -423,19 +421,11 @@ services:
         condition: service_healthy
 ```
 
-## Volume Management
+`condition: service_healthy` is the difference between "web container restarted 47 times" and "web container started once, successfully."
 
-### Named Volumes
+## Volumes: Persistence vs. Live Editing
 
-```yaml
-volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
-```
-
-### Bind Mounts for Development
+Named volumes persist data across `docker-compose down`. Bind mounts sync source code. Both matter:
 
 ```yaml
 services:
@@ -446,19 +436,17 @@ services:
       - /app/node_modules  # Exclude node_modules
 ```
 
-### Volume Drivers
-
 ```yaml
 volumes:
-  db_data:
+  postgres_data:
     driver: local
-    driver_opts:
-      type: nfs
-      o: addr=192.168.1.100,rw
-      device: ":/path/to/nfs/share"
+  redis_data:
+    driver: local
 ```
 
-## Useful Docker Compose Commands
+`docker-compose down -v` wipes named volumes. Document that prominently before someone loses a week of local test data.
+
+## Commands You'll Actually Use
 
 ```bash
 # Start services
@@ -488,9 +476,11 @@ docker-compose ps
 docker-compose run --rm web php artisan tinker
 ```
 
-## Development Workflow
+`docker-compose exec` runs in a running container. `docker-compose run` creates a new one. Use `run --rm` for one-off tasks that shouldn't stick around.
 
-### Initial Setup Script
+## Team Workflow: From Clone to Shipping
+
+### Onboarding Script
 
 ```bash
 #!/bin/bash
@@ -517,7 +507,9 @@ docker-compose exec frontend npm install
 echo "Setup complete! Visit http://localhost"
 ```
 
-### Daily Workflow
+The `sleep 10` is crude. Health checks are better. We kept the sleep in onboarding scripts because it's obvious and works; health checks are for the compose file itself.
+
+### Daily Rhythm
 
 ```bash
 # Start everything
@@ -535,9 +527,7 @@ docker-compose logs -f
 docker-compose down
 ```
 
-## Troubleshooting
-
-### View Service Logs
+## When Things Break (They Will)
 
 ```bash
 # All services
@@ -550,8 +540,6 @@ docker-compose logs web
 docker-compose logs -f web db
 ```
 
-### Access Running Containers
-
 ```bash
 # Shell into container
 docker-compose exec web bash
@@ -560,40 +548,25 @@ docker-compose exec web bash
 docker-compose exec web php artisan migrate
 ```
 
-### Reset Everything
-
 ```bash
-# Stop and remove containers, networks, volumes
+# Nuclear option
 docker-compose down -v
-
-# Remove images
 docker-compose down --rmi all
-
-# Clean start
 docker-compose up -d --build
 ```
 
-## Best Practices
+The nuclear option fixes 80% of "something weird is happening" reports. It's slow, but so is debugging phantom state from a container that was built three months ago.
 
-1. **Use .env files** - Don't hardcode secrets
-2. **Separate dev/prod configs** - Use override files
-3. **Use health checks** - Ensure services are ready
-4. **Volume node_modules** - Prevent overwrites
-5. **Use named volumes** - For persistent data
-6. **Document services** - Add comments in compose file
-7. **Use profiles** - For optional services
-8. **Keep images updated** - Regular security updates
+## What We Learned
 
-## Conclusion
+Use `.env` files and never commit secrets. Split dev and prod with override files, not duplicate stacks. Health checks with `service_healthy` dependencies prevent startup race conditions. Anonymous volumes for `node_modules` prevent bind mount disasters. Named volumes for database persistence. Profiles for migrations and seeds.
 
-Docker Compose transforms local development:
-- Consistent environments across team
-- Easy service management
-- Simple cleanup and reset
-- Production-like setup locally
+Keep images reasonably current — that `postgres:9.6` made sense in 2016; update deliberately, not never. Document the two commands every new hire needs. Put `setup.sh` in the repo.
 
-Start with a simple compose file, then add services as needed. The patterns shown here work for applications of any size.
+Docker Compose doesn't replace production orchestration. It replaces the afternoon lost to "can you help me configure Postgres." That's worth more than it sounds.
+
+Start with web + db + redis. Add nginx, workers, and frontend when the app needs them. The patterns here scaled from solo side projects to teams of twenty — because the compose file is version-controlled truth, not tribal knowledge in someone's `.bashrc`.
 
 ---
 
-*Docker Compose best practices from October 2016, using Compose file format 3.8.*
+*Docker Compose best practices from October 2016, using Compose file format 3.8. Compose V2 (`docker compose` without hyphen) is now standard; concepts and override patterns are unchanged.*

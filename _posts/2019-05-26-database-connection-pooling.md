@@ -4,22 +4,30 @@ title: "Database Connection Pooling: Best Practices"
 date: 2019-05-26
 categories: [Architecture]
 tags: [Database, Connection Pooling, Performance]
-excerpt: "Optimize database connections with connection pooling. Learn pool sizing, connection lifecycle, monitoring, and production patterns for PostgreSQL, MySQL, and MongoDB."
+excerpt: "We scaled to 200 app instances and PostgreSQL said 'absolutely not' to 200 connections. Connection pooling turned a capacity crisis into a configuration change."
 ---
 
-Connection pooling is critical for database performance. After optimizing connection pools in production, here are the patterns that work.
+The alert said `FATAL: sorry, too many clients already`.
 
-## What is Connection Pooling?
+We had scaled the application horizontally—more pods, more throughput, happier users. PostgreSQL, meanwhile, was having the database equivalent of a house party where everyone brought a plus-one and the fire marshal showed up.
 
-Connection pooling:
-- Reuses database connections
-- Reduces connection overhead
-- Limits concurrent connections
-- Improves application performance
+Each app instance was opening its own connections. Twenty instances times twenty connections per pool is four hundred handshakes to a database that defaults to **one hundred max connections**. The math wasn't subtle. The fix wasn't "buy a bigger database" (though finance was ready). The fix was **connection pooling**—reuse a small set of connections instead of treating every HTTP request like it needs a fresh TCP soul mate.
 
-## PostgreSQL Pooling
+## What pooling actually does
 
-### pgBouncer
+Opening a database connection is expensive: TCP handshake, authentication, memory on the server, sometimes SSL negotiation. Closing and reopening per request is like renting a new apartment every time you want to make coffee.
+
+A pool:
+- Maintains a set of warm connections ready to use
+- Lends one to your code for the duration of a query/transaction
+- Takes it back when you're done
+- Caps total connections so you don't overwhelm the database
+
+You trade a little complexity for a lot of stability. Worth it.
+
+## PostgreSQL: pgBouncer is your friend
+
+Application-level pools help. When you have many app servers, **pgBouncer** (or Pgpool-II) in front of PostgreSQL multiplexes thousands of client connections onto a smaller set of server connections.
 
 ```ini
 # pgbouncer.ini
@@ -37,7 +45,14 @@ max_db_connections = 100
 max_user_connections = 100
 ```
 
-### Node.js with pg
+**Pool modes matter:**
+- `session` — connection tied to client for whole session (safest, least multiplexing)
+- `transaction` — connection returned after each transaction (sweet spot for most web apps)
+- `statement` — aggressive; breaks some session features; use carefully
+
+We ran `transaction` mode for stateless APIs and slept better.
+
+### Node.js with `pg`
 
 ```javascript
 const { Pool } = require('pg');
@@ -67,6 +82,8 @@ async function getUser(userId) {
 }
 ```
 
+`client.release()` in `finally` is non-negotiable. Forget it once and you've got a leak. Forget it in production and you've got a leak that grows until someone pages you.
+
 ### Python with psycopg2
 
 ```python
@@ -94,7 +111,9 @@ def get_user(user_id):
         connection_pool.putconn(connection)
 ```
 
-## MySQL Pooling
+Same rule: `putconn` in `finally`, every time.
+
+## MySQL pooling
 
 ### Node.js with mysql2
 
@@ -121,6 +140,8 @@ async function getUser(userId) {
     return rows[0];
 }
 ```
+
+`mysql2/promise` pool handles acquire/release for simple queries. For transactions, grab a connection explicitly and release in `finally`.
 
 ### Python with PyMySQL
 
@@ -150,9 +171,9 @@ def get_user(user_id):
         connection.close()
 ```
 
-## MongoDB Pooling
+## MongoDB pooling
 
-### Node.js with mongodb
+The MongoDB driver pools by default—you configure it, not reinvent it:
 
 ```javascript
 const { MongoClient } = require('mongodb');
@@ -173,27 +194,27 @@ async function getUser(userId) {
 }
 ```
 
-## Pool Sizing
+Create **one** `MongoClient` per application process. Connecting per request is the Mongo equivalent of the PostgreSQL party problem.
 
-### Formula
+## How big should the pool be?
+
+The classic formula (from PostgreSQL wiki folklore):
 
 ```
-connections = ((core_count * 2) + effective_spindle_count)
+connections = (core_count * 2) + effective_spindle_count
 ```
 
-**Example:**
-- 4 CPU cores
-- 1 disk spindle
-- Pool size = (4 * 2) + 1 = 9 connections
+Example: 4 cores, 1 disk → `(4 * 2) + 1 = 9` connections.
 
-### Guidelines
+Reality is messier. Rules of thumb that survived production:
+- **Small apps**: 5-10 connections per process
+- **Medium apps**: 10-20
+- **Large apps**: 20-50 per process, often with pgBouncer in front
+- **Many replicas**: divide database `max_connections` by instance count—don't let each pod claim 50 if you have forty pods
 
-- **Small applications**: 5-10 connections
-- **Medium applications**: 10-20 connections
-- **Large applications**: 20-50 connections
-- **Very large**: 50-100 connections (with pgBouncer)
+More connections ≠ faster queries. PostgreSQL context-switches between connections; past a point you hurt throughput. Profile under load; don't max the knob because it exists.
 
-## Connection Lifecycle
+## Lifecycle: know what's happening inside the pool
 
 ```javascript
 class ConnectionManager {
@@ -240,9 +261,9 @@ class ConnectionManager {
 }
 ```
 
-## Monitoring
+Event handlers are noisy in dev and invaluable when debugging "why is everything waiting?"
 
-### Pool Metrics
+## Monitor the pool (if you can't see it, you'll guess wrong)
 
 ```javascript
 function getPoolStats(pool) {
@@ -268,7 +289,9 @@ setInterval(() => {
 }, 5000);
 ```
 
-### Prometheus Metrics
+`waitingCount > 0` means requests are queued for connections—either pool too small, queries too slow, or leaks.
+
+### Export to Prometheus
 
 ```javascript
 const prometheus = require('prom-client');
@@ -295,37 +318,29 @@ function updateMetrics(pool) {
 }
 ```
 
-## Best Practices
+Alert on sustained pool exhaustion before users feel it.
 
-1. **Size pool appropriately** - Based on workload
-2. **Monitor pool metrics** - Track usage
-3. **Set timeouts** - Prevent hanging
-4. **Handle errors** - Graceful degradation
-5. **Use connection poolers** - pgBouncer for PostgreSQL
-6. **Test under load** - Verify pool sizing
-7. **Close connections** - Always release
-8. **Use transactions** - For consistency
+## The failures you'll actually hit
 
-## Common Issues
+### Pool exhaustion
 
-### Pool Exhaustion
+Symptom: timeouts, `waitingCount` climbing, database CPU oddly low (queries aren't running—they're queued in app land).
+
+Fix: increase pool size modestly, add pgBouncer, or—often the real answer—**fix slow queries** holding connections hostage.
 
 ```javascript
-// Problem: Too many connections
-// Solution: Increase pool size or use connection pooler
-
 const pool = new Pool({
-    max: 50, // Increase from 20
-    // Or use pgBouncer
+    max: 50, // Increase from 20—but ask why you need to
 });
 ```
 
-### Connection Leaks
+### Connection leaks
+
+Symptom: pool slowly drains until restart; `totalCount` stuck at max with nothing idle.
+
+Fix: `release()` in `finally`. Every code path. Including the one that throws.
 
 ```javascript
-// Problem: Connections not released
-// Solution: Always use try/finally
-
 async function getUser(userId) {
     const client = await pool.connect();
     try {
@@ -336,28 +351,35 @@ async function getUser(userId) {
 }
 ```
 
-### Slow Queries
+We once leaked connections in an error handler that logged and returned without releasing. Classic.
+
+### Slow queries monopolizing the pool
+
+Symptom: pool looks full, queries pile up, individual queries are fine in isolation.
+
+Fix: statement timeouts, query optimization, read replicas for heavy reads.
 
 ```javascript
-// Problem: Queries holding connections too long
-// Solution: Set query timeout
-
 const pool = new Pool({
     statement_timeout: 5000, // 5 seconds
     query_timeout: 5000
 });
 ```
 
-## Conclusion
+A query that runs ten minutes shouldn't hold a connection for ten minutes without you explicitly deciding that's okay.
 
-Connection pooling:
-- Improves performance
-- Reduces overhead
-- Limits connections
-- Requires proper sizing
+## Principles that survived our incidents
 
-Size pools based on workload, monitor metrics, and handle errors gracefully. The patterns shown here handle production workloads.
+Size pools from **database limits and instance count**, not vibes. Monitor idle, active, and waiting counts. Set connection and query timeouts so failures fail fast. Always release connections in `finally`. Use pgBouncer (or equivalent) when many app servers share one database. Load-test pool sizing—staging with one user lies. Wrap multi-statement work in transactions so pgBouncer transaction mode behaves predictably.
+
+Connection pooling isn't glamorous. Nobody puts "optimized pgBouncer config" on a conference slide. But it's the difference between horizontal scale that works and horizontal scale that DDOSes your own database.
+
+## Start here
+
+If you're running more than a handful of app instances against PostgreSQL: deploy pgBouncer in transaction mode, set per-process pool sizes so total server connections stay under ~70% of `max_connections`, add pool metrics to your dashboard, and grep your codebase for `connect()` without matching `release()`.
+
+Your database will stop acting like a nightclub with a one-in-one-out policy. Your on-call rotation might even get a quiet weekend.
 
 ---
 
-*Database connection pooling from May 2019, covering production patterns.*
+*Written May 2019, covering pg, pgBouncer, mysql2, and MongoDB driver pooling patterns. Managed databases and serverless connection proxies (RDS Proxy, etc.) extend these ideas; the math of "don't open a connection per request" hasn't changed.*

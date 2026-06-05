@@ -4,22 +4,29 @@ title: "API Gateway Patterns: Rate Limiting, Caching, and Authentication"
 date: 2018-10-06
 categories: [Architecture]
 tags: [API Gateway, Architecture, Security]
-excerpt: "Implement API gateway patterns for rate limiting, caching, authentication, and request routing. Learn how to build a production-ready API gateway with Kong, AWS API Gateway, or custom solutions."
+excerpt: "Fifteen microservices behind one front door sounds elegant until a rogue client hammers your user service at 10,000 req/s. Here's how we built gateways that say 'no' politely."
 ---
 
-API gateways are the entry point for microservices. After building production gateways, here are the patterns that work.
+Before we had an API gateway, our microservices architecture looked like a strip mall with fifteen separate entrances — each with its own lock, its own rate limit (or lack thereof), and its own idea of what "authenticated" meant. Frontend clients talked to five different base URLs. Mobile apps cached credentials in three places. And one enthusiastic partner's integration test DDoS'd our user service because nothing was throttling at the edge.
 
-## What is an API Gateway?
+The API gateway became the **single front door**: routing, auth, rate limiting, caching, and the cross-cutting concerns that don't belong duplicated in every service. Not because gateways are trendy — because "every team implements JWT validation slightly differently" is a security incident waiting for a calendar invite.
 
-An API gateway:
-- Routes requests to backend services
-- Handles cross-cutting concerns
-- Provides single entry point
-- Manages authentication/authorization
+Here's what we built and what we'd do again.
 
-## Core Patterns
+## What an API Gateway Actually Does
 
-### Request Routing
+An API gateway sits between clients and backend services. It:
+- Routes requests to the right microservice
+- Handles authentication and authorization once, centrally
+- Protects backends from abuse (rate limiting)
+- Caches responses that don't need to hit origin every time
+- Provides a single URL for clients, even as backends move and multiply
+
+Think of it as a concierge: clients ask the concierge; the concierge knows which room to send them to, checks their credentials, and won't let them order room service 500 times per minute.
+
+## Request Routing: One URL, Many Backends
+
+The simplest gateway is a reverse proxy with opinions. Express + `http-proxy-middleware` gets you surprisingly far:
 
 ```javascript
 // Express.js gateway
@@ -49,9 +56,15 @@ app.use('/api/orders', createProxyMiddleware({
 app.listen(8080);
 ```
 
-## Rate Limiting
+Clients see `api.example.com/users`. Behind the scenes, the gateway strips the prefix and forwards to `user-service:3000`. When you split the monolith further, clients don't care — the gateway routing table changes, not the mobile app.
 
-### Token Bucket Algorithm
+## Rate Limiting: Protecting Backends From Enthusiasm
+
+Not all traffic is malicious. Some is just... enthusiastic. Integration tests, retry loops, scrapers, that one client who polls every 100ms "for real-time feel." Rate limiting is how you say "we love your business, but please breathe."
+
+### Token Bucket: Smooth Burst Handling
+
+The token bucket algorithm refills tokens at a steady rate and allows bursts up to bucket capacity. It's intuitive and works well per-user or per-API-key:
 
 ```javascript
 class TokenBucket {
@@ -105,7 +118,9 @@ function rateLimitMiddleware(req, res, next) {
 }
 ```
 
-### Redis-Based Rate Limiting
+In-memory buckets work for single-instance gateways. The moment you scale horizontally, you need shared state — hello, Redis.
+
+### Redis-Based Rate Limiting: Works Across Gateway Replicas
 
 ```javascript
 const Redis = require('ioredis');
@@ -138,9 +153,13 @@ async function rateLimit(req, res, next) {
 }
 ```
 
-## Caching
+Return `429` with `Retry-After` headers. Well-behaved clients back off. The ones that don't? That's what WAF rules and IP blocks are for.
 
-### Response Caching
+## Caching: Stop Asking the Database the Same Question
+
+Some endpoints get called thousands of times per second with identical parameters. `/api/users/123` doesn't change every millisecond. Caching at the gateway offloads backends and cuts latency dramatically.
+
+### In-Memory Cache: Simple and Fast (Single Instance)
 
 ```javascript
 const NodeCache = require('node-cache');
@@ -174,7 +193,9 @@ app.get('/api/users/:id', cacheMiddleware(600), async (req, res) => {
 });
 ```
 
-### Redis Caching
+**Cache invalidation caveat:** Gateway caching works best for read-heavy, rarely-changing data. User profiles? Maybe. Account balances? Be very careful. When in doubt, short TTLs and explicit cache-bust headers on writes.
+
+### Redis Cache: Shared Across Gateway Instances
 
 ```javascript
 const Redis = require('ioredis');
@@ -201,7 +222,11 @@ async function cacheMiddleware(req, res, next) {
 }
 ```
 
-## Authentication
+Only cache `GET` requests. Never cache responses that vary by auth header unless your cache key includes the user identity.
+
+## Authentication: Validate Once at the Door
+
+Duplicating JWT validation in twelve microservices means twelve places to forget the expiry check. Do it at the gateway; pass trusted identity downstream.
 
 ### JWT Validation
 
@@ -230,7 +255,9 @@ app.get('/api/users/me', authMiddleware, (req, res) => {
 });
 ```
 
-### API Key Authentication
+Downstream services should receive identity via headers (`X-User-Id`, `X-User-Roles`) injected by the gateway — not re-validate the JWT unless you need defense-in-depth for highly sensitive operations.
+
+### API Key Authentication for Partners
 
 ```javascript
 const apiKeys = new Map([
@@ -255,7 +282,11 @@ function apiKeyMiddleware(req, res, next) {
 }
 ```
 
-## Request/Response Transformation
+In production, API keys live in a database with rotation, revocation, and per-key rate limits — not a hardcoded Map. But the middleware shape is the same.
+
+## Request/Response Transformation: Consistency at the Edge
+
+Clients appreciate predictable response envelopes. Request IDs make debugging possible when logs span a dozen services:
 
 ```javascript
 function transformRequest(req, res, next) {
@@ -280,7 +311,11 @@ function transformRequest(req, res, next) {
 }
 ```
 
-## Load Balancing
+Propagate `req.id` to downstream services via `X-Request-Id` header. When a user reports "it broke at 3:15," you grep one ID instead of reconstructing a distributed trace from vibes.
+
+## Load Balancing: Don't Send Everyone to the Same Pod
+
+Round-robin across healthy backend instances is the default for a reason — it's simple and mostly works:
 
 ```javascript
 const servers = [
@@ -304,7 +339,11 @@ app.use('/api/users', createProxyMiddleware({
 }));
 ```
 
-## Circuit Breaker
+For production, health-check-aware load balancing (via Kong, nginx, or cloud load balancers) skips unhealthy backends automatically. Sending traffic to a pod that's mid-crash helps nobody.
+
+## Circuit Breakers at the Gateway: Fail Fast Before Backends Drown
+
+When a backend is melting down, the gateway should stop forwarding traffic — not queue infinite requests:
 
 ```javascript
 class CircuitBreaker {
@@ -362,7 +401,11 @@ app.get('/api/users/:id', async (req, res) => {
 });
 ```
 
-## Kong Gateway Configuration
+Return `503` with a clear message instead of hanging until the client times out. Your mobile app's retry logic will thank you — if you've taught it to respect 503s.
+
+## Off-the-Shelf Gateways: When Roll-Your-Own Gets Old
+
+We started with Express. We migrated to **Kong** when plugin management, admin API, and rate-limiting plugins outweighed the simplicity of a custom server.
 
 ```yaml
 # kong.yml
@@ -393,7 +436,9 @@ consumers:
   - key: api-key-123
 ```
 
-## AWS API Gateway
+Rate limiting, JWT validation, and response caching — configured declaratively, no middleware spaghetti.
+
+### AWS API Gateway: When You're Already on AWS
 
 ```yaml
 # serverless.yml
@@ -419,27 +464,18 @@ functions:
             rateLimit: 100
 ```
 
-## Best Practices
+Managed throttling, IAM auth, and Lambda integration — less ops, more vendor coupling. Tradeoffs, as always.
 
-1. **Implement rate limiting** - Prevent abuse
-2. **Cache responses** - Reduce backend load
-3. **Validate authentication** - Secure endpoints
-4. **Monitor metrics** - Track performance
-5. **Handle errors gracefully** - Proper error responses
-6. **Use circuit breakers** - Prevent cascading failures
-7. **Log requests** - For debugging and analytics
-8. **Version APIs** - Support multiple versions
+## What We Learned Running Gateways in Production
 
-## Conclusion
+Rate limiting at the edge saved us more than once — set it before you need it, not after a partner's load test. Cache read-heavy endpoints aggressively but invalidate carefully; stale user data causes support tickets, stale product catalogs cause shrug emojis. Auth belongs at the gateway for external clients; internal service-to-service calls need their own trust model (mTLS, service tokens). Log every request with a correlation ID — you will need it. Circuit breakers on unhealthy backends prevent cascade failures. And version your APIs (`/v1/`, `/v2/`) so you can migrate clients without a big-bang deploy.
 
-API gateways provide:
-- Single entry point
-- Cross-cutting concerns
-- Security and rate limiting
-- Request routing
+## The Bottom Line
 
-Implement rate limiting, caching, and authentication at the gateway. The patterns shown here handle production traffic.
+An API gateway isn't ceremony — it's the choke point where you enforce the rules everyone agreed on in architecture reviews but nobody implemented in their service. One URL for clients. One place for auth. One place to say "slow down" before your database catches fire.
+
+Build it early enough to matter, keep it thin enough to maintain, and resist the urge to put business logic in it. The gateway is a bouncer, not a chef.
 
 ---
 
-*API Gateway patterns from October 2018, covering production patterns.*
+*Written October 2018, covering production gateway patterns with Express, Kong, and AWS API Gateway. Gateway technology has exploded since (Envoy, Istio, APISIX) — the patterns remain; evaluate managed vs self-hosted for your scale.*

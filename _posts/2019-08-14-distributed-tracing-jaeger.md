@@ -4,28 +4,43 @@ title: "Distributed Tracing with Jaeger and OpenTelemetry"
 date: 2019-08-14
 categories: [How-To]
 tags: [Distributed Tracing, Observability, Jaeger]
-excerpt: "Implement distributed tracing in microservices using Jaeger and OpenTelemetry. Learn about spans, traces, context propagation, and production patterns."
+excerpt: "Your microservice works in isolation and fails in production. Distributed tracing with Jaeger and OpenTelemetry is how you stop guessing which service lied to you."
 ---
 
-Distributed tracing helps debug microservices. After implementing Jaeger in production, here's how to set it up effectively.
+The bug report was perfect in its uselessness: "checkout is slow sometimes."
 
-## What is Distributed Tracing?
+Which service? Which database query? Which downstream API call decided to take a scenic route through latency? In a monolith you'd grep the logs and find the answer in twenty minutes. In microservices you grep twelve log streams, find nothing coherent, and start blaming the network team.
 
-Distributed tracing:
-- Tracks requests across services
-- Shows request flow
-- Identifies bottlenecks
-- Debugs failures
+That's the moment distributed tracing stops being a conference buzzword and becomes the best debugging tool you've never properly set up.
 
-## Jaeger Architecture
+After wiring Jaeger into production services — and watching it save us from at least three "mystery latency" incidents — here's the practical guide to getting tracing working without turning your observability budget into a line item that makes finance cry.
+
+## What Distributed Tracing Actually Gives You
+
+A **trace** is the full journey of a single request through your system. A **span** is one unit of work within that journey — an HTTP call, a database query, a message publish.
+
+Together they answer questions logs struggle with:
+
+- Where did this request spend its time?
+- Which service in the chain is the bottleneck?
+- Did the failure happen here, or three hops upstream?
+- What was the exact path when things went wrong at 3:47 AM?
+
+Logs tell you what happened at a point in time. Traces tell you how a request flowed through a distributed system. You need both. Traces without logs is a pretty waterfall chart with no error details. Logs without traces is twelve grep sessions and a prayer.
+
+## Jaeger Architecture (The Plumbing)
 
 ```
 Application → OpenTelemetry SDK → Jaeger Agent → Jaeger Collector → Storage
 ```
 
-## OpenTelemetry Setup
+Your app creates spans via the OpenTelemetry SDK. The Jaeger exporter ships them to a collector. Storage (Elasticsearch, Cassandra, or in-memory for dev) persists them. The Jaeger UI lets you search and visualize traces.
 
-### Node.js Installation
+In 2019, OpenTelemetry was still consolidating from OpenTracing and OpenCensus — but the direction was clear: one standard instrumentation layer, multiple backends. Jaeger was (and remains) a solid open-source backend choice.
+
+## Getting Started with OpenTelemetry in Node.js
+
+### Installation
 
 ```bash
 npm install @opentelemetry/api
@@ -36,7 +51,11 @@ npm install @opentelemetry/instrumentation-http
 npm install @opentelemetry/instrumentation-express
 ```
 
+Yes, that's a lot of packages. Observability tax is real.
+
 ### Basic Setup
+
+Initialize tracing **before** your application code loads. If you import Express first and tracing second, you've already missed the HTTP calls you cared about:
 
 ```javascript
 const { NodeSDK } = require('@opentelemetry/sdk-node');
@@ -63,7 +82,13 @@ const sdk = new NodeSDK({
 sdk.start();
 ```
 
-## Manual Instrumentation
+Auto-instrumentation gets you 80% of the value with 20% of the effort. HTTP requests, Express routes — traced automatically. You'll see spans before you've written a single manual `startSpan`.
+
+The `SERVICE_NAME` attribute matters more than it sounds. In the Jaeger UI, "unknown-service" is where traces go to die unnoticed.
+
+## Manual Instrumentation: When Auto-Instrumentation Isn't Enough
+
+Auto-instrumentation tells you *that* a request happened. Manual spans tell you *what your code did* inside that request.
 
 ### Creating Spans
 
@@ -97,21 +122,23 @@ async function getUser(userId) {
 }
 ```
 
-### Nested Spans
+The `finally { span.end() }` pattern is non-negotiable. Unclosed spans leak memory and produce traces that look like your service is still working on a request from last Tuesday.
+
+Add attributes that help you debug: user IDs, order totals, cache hit/miss. Don't add passwords, API keys, or full credit card numbers. Traces get stored, searched, and occasionally screenshotted in Slack. Treat them like logs for PII purposes.
+
+### Nested Spans: See Where Time Actually Goes
 
 ```javascript
 async function processOrder(orderId) {
     const span = tracer.startSpan('processOrder');
     
     try {
-        // Child span
         const validateSpan = tracer.startSpan('validateOrder', {
             parent: span,
         });
         await validateOrder(orderId);
         validateSpan.end();
         
-        // Another child span
         const paymentSpan = tracer.startSpan('processPayment', {
             parent: span,
         });
@@ -131,7 +158,11 @@ async function processOrder(orderId) {
 }
 ```
 
-## Context Propagation
+This is where tracing pays for itself. You open a slow checkout trace and see: validation took 12ms, payment took 4.2 seconds. Now you know where to look. Without nested spans, you just know "processOrder was slow" — which is like knowing your car is broken without knowing which part.
+
+## Context Propagation: The Part Everyone Gets Wrong
+
+Tracing only works across services if trace context travels with the request. Service A creates a trace ID. Service B must continue that trace, not start a fresh one.
 
 ### HTTP Headers
 
@@ -139,10 +170,8 @@ async function processOrder(orderId) {
 const { propagation, context } = require('@opentelemetry/api');
 const { W3CTraceContextPropagator } = require('@opentelemetry/core');
 
-// Set propagator
 propagation.setGlobalPropagator(new W3CTraceContextPropagator());
 
-// Extract context from headers
 function extractContext(req) {
     const headers = req.headers;
     const parentContext = propagation.extract(
@@ -152,12 +181,13 @@ function extractContext(req) {
     return parentContext;
 }
 
-// Inject context into headers
 function injectContext(headers) {
     propagation.inject(context.active(), headers);
     return headers;
 }
 ```
+
+W3C Trace Context (`traceparent` header) was becoming the standard in 2019. If your services use different propagation formats, you get disconnected traces — separate waterfalls that should be one. It's like trying to follow a story where every chapter is a different book.
 
 ### Express Middleware
 
@@ -197,7 +227,11 @@ app.use((req, res, next) => {
 });
 ```
 
-## gRPC Instrumentation
+The first thing I check when traces look disconnected: is context being extracted on incoming requests and injected on outgoing ones? Miss either direction and your distributed trace becomes a collection of lonely spans.
+
+## Instrumenting the Rest of Your Stack
+
+### gRPC
 
 ```javascript
 const grpc = require('@grpc/grpc-js');
@@ -205,18 +239,18 @@ const { GrpcInstrumentation } = require('@opentelemetry/instrumentation-grpc');
 
 const instrumentation = new GrpcInstrumentation();
 
-// Server
 const server = new grpc.Server();
 instrumentation.enable();
 
-// Client
 const client = new userProto.UserService(
     'localhost:50051',
     grpc.credentials.createInsecure()
 );
 ```
 
-## Database Instrumentation
+gRPC metadata carries trace context similarly to HTTP headers. Enable the instrumentation package and verify propagation in the Jaeger UI — gRPC's binary headers are easier to misconfigure than HTTP's text headers.
+
+### PostgreSQL
 
 ```javascript
 const { PgInstrumentation } = require('@opentelemetry/instrumentation-pg');
@@ -227,11 +261,12 @@ const instrumentation = new PgInstrumentation({
 
 instrumentation.enable();
 
-// Queries are automatically traced
 const result = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
 ```
 
-## Custom Attributes
+Suddenly your traces show individual query durations. That "mystery 800ms" in your API handler? It's three sequential queries that should've been one. Database spans make this obvious.
+
+## Enriching Spans for Actual Debugging
 
 ```javascript
 span.setAttributes({
@@ -243,7 +278,9 @@ span.setAttributes({
 });
 ```
 
-## Error Tracking
+Good attributes turn traces from pretty charts into actionable evidence. When filtering traces in Jaeger, `http.status_code=500` and `payment.method=credit_card` narrow thousands of traces to the handful that matter.
+
+### Error Tracking
 
 ```javascript
 try {
@@ -261,7 +298,11 @@ try {
 }
 ```
 
-## Sampling
+`recordException` attaches stack traces to spans. When you're debugging a production failure at 2 AM, finding the stack trace in the trace view beats correlating trace IDs with log entries across four services.
+
+## Sampling: Because You Can't Trace Everything
+
+At scale, tracing every request will overwhelm your collector, inflate storage costs, and make the UI unusable. Sampling is how you balance visibility with cost.
 
 ### Probabilistic Sampling
 
@@ -274,17 +315,17 @@ const sdk = new NodeSDK({
 });
 ```
 
-### Custom Sampler
+10% sampling means you see one in ten requests — usually enough to catch patterns. Latency outliers, error spikes, and slow dependencies show up in sampled data if your traffic is meaningful.
+
+### Custom Sampling: Always Catch Errors
 
 ```javascript
 class CustomSampler {
     shouldSample(context, traceId, spanName, spanKind, attributes) {
-        // Sample all errors
         if (attributes['error']) {
             return { decision: SamplingDecision.RECORD_AND_SAMPLE };
         }
         
-        // Sample 10% of others
         if (Math.random() < 0.1) {
             return { decision: SamplingDecision.RECORD_AND_SAMPLE };
         }
@@ -294,9 +335,11 @@ class CustomSampler {
 }
 ```
 
-## Jaeger Deployment
+Sample everything that fails. Sample a fraction of successes. This gives you error visibility without paying to store traces for every health check.
 
-### Docker Compose
+## Deploying Jaeger
+
+### Docker Compose (Development)
 
 ```yaml
 version: '3'
@@ -311,7 +354,9 @@ services:
       - COLLECTOR_ZIPKIN_HTTP_PORT=9411
 ```
 
-### Kubernetes
+The all-in-one image is perfect for local development. One `docker-compose up`, open `localhost:16686`, and you're staring at traces. Don't run all-in-one in production — it stores everything in memory and forgets it on restart.
+
+### Kubernetes (Production-ish)
 
 ```yaml
 apiVersion: apps/v1
@@ -333,12 +378,13 @@ spec:
           value: "9411"
 ```
 
-## Querying Traces
+For real production workloads in 2019, you'd separate collector, query, and agent components with persistent storage (Elasticsearch was the common choice). The all-in-one deployment gets you started; persistent storage keeps your traces when pods restart.
 
-### Find Traces
+## Querying and Analyzing Traces
+
+### Finding Traces Programmatically
 
 ```javascript
-// Query traces by service
 const traces = await jaegerClient.findTraces({
     serviceName: 'my-service',
     startTime: Date.now() - 3600000, // Last hour
@@ -348,10 +394,11 @@ const traces = await jaegerClient.findTraces({
 });
 ```
 
-### Trace Analysis
+Automate trace queries for incident response. "Show me all 500 errors in the payment service in the last hour" beats clicking through the UI when production is on fire.
+
+### Analyzing Where Time Went
 
 ```javascript
-// Analyze trace duration
 function analyzeTrace(trace) {
     const spans = trace.spans;
     const totalDuration = trace.duration;
@@ -366,27 +413,38 @@ function analyzeTrace(trace) {
 }
 ```
 
-## Best Practices
+Sort spans by duration percentage and the bottleneck announces itself. The span consuming 78% of total trace time is your optimization target. Everything else is noise until that's fixed.
 
-1. **Instrument all services** - Complete visibility
-2. **Use consistent naming** - Standardize span names
-3. **Add meaningful attributes** - Context for debugging
-4. **Sample appropriately** - Balance cost and visibility
-5. **Propagate context** - Across service boundaries
-6. **Monitor trace volume** - Prevent overload
-7. **Set up alerts** - On error rates
-8. **Review traces regularly** - Identify issues
+## What We Learned Running This in Production
 
-## Conclusion
+**Instrument every service or accept incomplete pictures.** A trace that dies at the service boundary is a cliffhanger, not debugging data. Roll out instrumentation service by service, but don't stop halfway.
 
-Distributed tracing provides:
-- Request visibility
-- Performance insights
-- Error debugging
-- Service dependencies
+**Consistent span naming saves your sanity.** Pick a convention (`service.operation` or `HTTP GET /users/:id`) and enforce it. "getUser", "get_user", and "UserService.get" in the same system makes the Jaeger UI feel like a ransom note.
 
-Start with basic instrumentation, then add custom spans and attributes. The patterns shown here handle production workloads.
+**Meaningful attributes are worth more than more spans.** A well-attributed span beats five generic ones. Tag the things you'll search for during incidents.
+
+**Sample intelligently, not frugally to the point of blindness.** 1% sampling on low-traffic services means you might not see an error for hours. Tune per environment: higher sampling in staging, error-biased sampling in production.
+
+**Watch trace volume like you watch log volume.** A misconfigured instrumentation loop can generate millions of spans per hour. Set alerts on collector queue depth and storage growth.
+
+**Propagate context everywhere.** HTTP, gRPC, message queues — if a request crosses a boundary, the trace ID must cross with it. This is the single most common reason tracing "doesn't work."
+
+**Review traces proactively, not just during incidents.** Weekly trace review catches slow regressions before they become outage postmortems. That payment service didn't suddenly become slow — it drifted over three deploys.
+
+## Start Here
+
+1. Deploy Jaeger locally with Docker Compose
+2. Add OpenTelemetry auto-instrumentation to one service
+3. Verify traces appear in the UI for incoming HTTP requests
+4. Add manual spans around your slowest business logic
+5. Fix context propagation to the next service in the chain
+6. Add sampling before you point this at production traffic
+7. Repeat for every service until the full request path is visible
+
+Distributed tracing won't fix your architecture. It will show you exactly which part of your architecture needs fixing — and that's worth more than another dashboard of aggregate metrics.
+
+The next time someone says "it's slow sometimes," you'll open Jaeger, find the trace, and point at the exact span that took 4.2 seconds. The network team will appreciate not being blamed. You'll appreciate sleeping through the night.
 
 ---
 
-*Distributed tracing with Jaeger from August 2019, covering OpenTelemetry and Jaeger patterns.*
+*Written August 2019, covering Jaeger and early OpenTelemetry patterns. The OpenTelemetry ecosystem has matured significantly since — unified SDKs, OTLP exporters, and broader language support — but the core concepts of spans, traces, context propagation, and sampling remain the same.*
