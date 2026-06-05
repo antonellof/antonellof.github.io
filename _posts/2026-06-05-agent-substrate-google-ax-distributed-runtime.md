@@ -4,7 +4,7 @@ title: "Agent Substrate and Google AX: The Missing Runtime Layer for Production 
 date: 2026-06-05
 categories: [Architecture]
 tags: [Agent Substrate, AX, Agent Executor, Kubernetes, gVisor, Agentic AI, MCP, Distributed Systems]
-excerpt: "Google open-sourced two pieces of agent infrastructure at once: Agent Substrate multiplexes stateful agent sessions across a small pod pool on Kubernetes, and AX (Agent Executor) coordinates distributed agent loops with durable event logs and resumption. Here's what they solve, how they stack, and why your LangGraph deployment is not enough."
+excerpt: "In May 2026, Google open-sourced AX (Agent Executor) for durable distributed agent loops — and paired it with Agent Substrate, an independent Kubernetes compute layer that multiplexes stateful sessions across a small pod pool. They are not the same project. Here's what each solves, how they stack, and why your LangGraph deployment is not enough."
 render_with_liquid: false
 ---
 
@@ -14,12 +14,12 @@ The demo runs on a laptop with one process, one terminal, one SQLite file for me
 
 We have excellent **agent frameworks** — [LangGraph](https://www.langchain.com/langgraph), [ADK](https://google.github.io/adk-docs/), [AutoGen](https://microsoft.github.io/autogen/), [CrewAI](https://www.crewai.com/). We have **models** getting smarter every quarter. What we conspicuously lack is a **runtime**: the layer that makes long-running, stateful, distributed agents behave like software instead of haunted scripts.
 
-In May 2026, Google dropped two open-source projects aimed squarely at that gap:
+In May 2026, two complementary open-source projects landed aimed squarely at that gap — easy to conflate, but **not the same thing**:
 
-- [**Agent Substrate**](https://github.com/agent-substrate/substrate) — a Kubernetes-native compute layer that multiplexes thousands of stateful "actors" onto a small pool of worker pods
-- [**AX (Agent Executor)**](https://github.com/google/ax) — a distributed agent runtime with durable event logs, resumption, auditing, and trajectory forking
+- [**Agent Substrate**](https://github.com/agent-substrate/substrate) — an **independent** open-source project (under the `agent-substrate` org) that is **not** an officially supported Google product. It is a Kubernetes-native compute layer that multiplexes thousands of stateful "actors" onto a small pool of worker pods.
+- [**AX (Agent Executor)**](https://github.com/google/ax) — **Google's** open-source distributed agent runtime with durable event logs, resumption, auditing, and trajectory forking.
 
-They are designed to work together. Substrate answers *"where does the agent process live?"* AX answers *"how does the agentic loop coordinate, recover, and get audited?"*
+They are designed to work together — AX lists Substrate as its recommended Kubernetes deployment target, and Google's [GKE blog](https://cloud.google.com/blog/products/containers-kubernetes/bringing-you-agent-sandbox-on-gke-and-agent-substrate) highlights both — but Substrate is its own project with its own repo, community, and disclaimers. Substrate answers *"where does the agent process live?"* AX answers *"how does the agentic loop coordinate, recover, and get audited?"*
 
 Both are in **very early development**. Both say so loudly. That honesty is refreshing — and the architecture is worth understanding now, before the APIs freeze.
 
@@ -37,11 +37,13 @@ What you need:
 4. **Isolation** when agents run arbitrary code (bash, generated Python, MCP tools)
 5. **Auditability** — who called what tool, when, with what policy?
 
-Frameworks solve reasoning. Runtimes solve *reliability at scale*. Google is betting the industry needs the second thing open-sourced.
+Frameworks solve reasoning. Runtimes solve *reliability at scale*. The industry is finally open-sourcing that second layer — with Google leading on orchestration (AX) and a separate community project handling compute density (Substrate).
 
 ## Agent Substrate: actors on a pod budget
 
-[Agent Substrate](https://github.com/agent-substrate/substrate) is **not** an SDK for building agents. It is infrastructure for **running** them — a control plane on top of Kubernetes that maps many **actors** (agent sessions, sandboxes, MCP servers) onto fewer **workers** (Pods).
+[Agent Substrate](https://github.com/agent-substrate/substrate) is **not** a Google product. The README states plainly: *"This is not an officially supported Google product."* It lives under the [`agent-substrate`](https://github.com/agent-substrate) GitHub org, ships Apache 2.0, and has its own [ate-dev community](https://groups.google.com/g/ate-dev) — a Google Group for discussion, not a sign of corporate ownership.
+
+What it **is**: infrastructure for **running** agents at scale — **not** an SDK for building them. Substrate is a control plane on top of Kubernetes that maps many **actors** (agent sessions, sandboxes, MCP servers) onto fewer **workers** (Pods).
 
 The core insight: agent-like workloads are **idle most of the time**. A coding agent stares at the screen while you read its diff. A research agent waits on an API. A human-in-the-loop flow waits on you. Substrate exploits that idle time with aggressive **oversubscription**.
 
@@ -123,7 +125,7 @@ curl -X POST \
 
 Suspend the actor, resume it on another worker, counter state intact. That is the whole value proposition in one curl.
 
-**Caveats:** Substrate is **not** an officially supported Google product. APIs **will** change. Production use today is for the brave. Join the [ate-dev Google Group](https://groups.google.com/g/ate-dev) or CNCF Slack `#substrate-users` if you want to follow along.
+**Caveats:** Substrate is in VERY early development — APIs **will** change, and production use today is for the brave. Again: independent project, not Google-supported. Join the [ate-dev Google Group](https://groups.google.com/g/ate-dev) or CNCF Slack `#substrate-users` if you want to follow along.
 
 ## Google AX: the agentic loop with a flight recorder
 
@@ -247,7 +249,7 @@ Think of three layers:
 
 This is a different layer than **inference orchestration** (routing tokens to GPUs — projects like [Cognitora](https://github.com/antonellof/cognitora-inference) live there) or **local inference** (running models on a MacBook — [DwarfStar 4](https://github.com/antirez/ds4) lives there). Substrate + AX sit between your framework and your cluster, answering operational questions frameworks were never meant to solve.
 
-Google's [GKE integration blog](https://cloud.google.com/blog/products/containers-kubernetes/bringing-you-agent-sandbox-on-gke-and-agent-substrate) frames the same story from the Kubernetes side: Agent Sandbox on GKE plus Substrate as the agent-first compute abstraction.
+Google's [GKE integration blog](https://cloud.google.com/blog/products/containers-kubernetes/bringing-you-agent-sandbox-on-gke-and-agent-substrate) frames the partnership from the Kubernetes side: Agent Sandbox on GKE plus Substrate as the agent-first compute abstraction — while AX provides the runtime on top. Google is integrating with Substrate; it did not author it.
 
 ## Why now?
 
@@ -264,9 +266,9 @@ The GitHub numbers tell the story: [AX at ~1.6k stars](https://github.com/google
 
 Both projects ship with flashing warning signs:
 
-**Agent Substrate:**
+**Agent Substrate (independent project, not Google):**
 - VERY early development — APIs guaranteed to change
-- Not officially supported by Google
+- Explicitly **not** an officially supported Google product
 - gVisor snapshot path is complex; distributed state recovery has edge cases
 - PRs may not merge unless aligned with core roadmap
 
@@ -276,7 +278,7 @@ Both projects ship with flashing warning signs:
 - Self-hosted only — you operate it
 - Reach out to `ax-dev@google.com` for collaboration, not drive-by PRs
 
-If you need something that works next Monday, keep your agents on plain Kubernetes Jobs and a Postgres session table. If you are designing infrastructure for the next three years of agent deployments, these repos are the most serious open-source attempt at a dedicated runtime I have seen from a major cloud vendor.
+If you need something that works next Monday, keep your agents on plain Kubernetes Jobs and a Postgres session table. If you are designing infrastructure for the next three years of agent deployments, this stack — Google's AX plus the independent Substrate compute layer — is the most serious open-source attempt at a dedicated agent runtime I have seen land this year.
 
 ## Where this leaves builders
 
@@ -298,4 +300,4 @@ The frameworks are not going anywhere. The runtime layer is just finally showing
 
 ---
 
-*Agent Substrate: [github.com/agent-substrate/substrate](https://github.com/agent-substrate/substrate). AX: [github.com/google/ax](https://github.com/google/ax) and [agentexecutor.io](https://agentexecutor.io). Announcement: [Agent Executor blog post](https://cloud.google.com/blog/products/ai-machine-learning/agent-executor-googles-distributed-agent-runtime) (May 20, 2026).*
+*Agent Substrate (independent): [github.com/agent-substrate/substrate](https://github.com/agent-substrate/substrate). AX (Google): [github.com/google/ax](https://github.com/google/ax) and [agentexecutor.io](https://agentexecutor.io). Announcements: [Agent Executor blog post](https://cloud.google.com/blog/products/ai-machine-learning/agent-executor-googles-distributed-agent-runtime) (May 20, 2026), [GKE + Substrate blog post](https://cloud.google.com/blog/products/containers-kubernetes/bringing-you-agent-sandbox-on-gke-and-agent-substrate).*
