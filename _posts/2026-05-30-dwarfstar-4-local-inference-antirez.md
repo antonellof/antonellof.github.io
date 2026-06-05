@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "DwarfStar 4: antirez Bets the Farm on Local Inference Done Right"
-date: 2026-06-05
+date: 2026-05-30
 categories: [Deep Dive]
 tags: [DwarfStar, DS4, Local Inference, DeepSeek, antirez, Metal, LLM, MoE, Distributed Inference]
 excerpt: "Salvatore Sanfilippo — the mind behind Redis — shipped DwarfStar 4, a purpose-built inference engine for DeepSeek V4 on Apple Silicon. Not another GGUF wrapper: a finished local-AI stack with asymmetric quants, disk-backed KV cache, a native coding agent, and distributed inference across MacBooks. Here's why 13k GitHub stars showed up in a week."
