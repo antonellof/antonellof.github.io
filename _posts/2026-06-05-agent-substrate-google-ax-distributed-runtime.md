@@ -45,9 +45,34 @@ Frameworks solve reasoning. Runtimes solve *reliability at scale*. The industry 
 
 What it **is**: infrastructure for **running** agents at scale — **not** an SDK for building them. Substrate is a control plane on top of Kubernetes that maps many **actors** (agent sessions, sandboxes, MCP servers) onto fewer **workers** (Pods).
 
-The core insight: agent-like workloads are **idle most of the time**. A coding agent stares at the screen while you read its diff. A research agent waits on an API. A human-in-the-loop flow waits on you. Substrate exploits that idle time with aggressive **oversubscription**.
+The core insight from the [launch demo](https://www.youtube.com/watch?v=ZEzkCFJkzjY): modern agents spend **upwards of 90% of their time** waiting — for models, tools, or humans. Standard cloud setups force a **stateful gap**: pay for expensive RAM to sit idle, or scale to zero and lose context. Substrate calls its answer a **zero-idle architecture** — session-centric, decoupling logical actors from physical workers so state can teleport across the cluster in under a second.
 
-The [demo video](https://www.youtube.com/watch?v=ZEzkCFJkzjY) is the pitch in 90 seconds: **~250 stateful actor sessions** juggling across **8 physical pods**. Sub-second suspend/resume. Full RAM and filesystem snapshots via [gVisor](https://gvisor.dev/) checkpoint/restore. The team calls it "instant session teleport" — less marketing than accurate.
+Two vocabulary words matter everywhere in the docs and demos:
+
+- **Actor** — a logical session; a private instance of a specific agent (or any OCI workload)
+- **Worker** — physical compute; in practice, a pre-initialized Kubernetes Pod in a warm pool
+
+Actors are often **suspended upon creation**. They exist logically, cost the platform nothing while idle, and hydrate only when traffic arrives. That is the opposite of "one Pod per user session, billing 24/7."
+
+### Watch the launch demo
+
+The [Agent Substrate OSS Launch Demo](https://www.youtube.com/watch?v=ZEzkCFJkzjY) (~8 minutes) walks through the counter demo, a "secret agent" zero-idle pattern, and a boardroom UI stress test scaling to **~250 concurrent agents on eight GKE worker pods** — a **32:1 oversubscription ratio** in the video's climactic burst.
+
+<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; margin: 1.5rem 0;">
+  <iframe style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" src="https://www.youtube.com/embed/ZEzkCFJkzjY" title="Agent Substrate OSS Launch Demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</div>
+
+### What the demo actually proves
+
+The video is structured in three acts. Each maps to a [repo demo](https://github.com/agent-substrate/substrate#demos) you can reproduce locally.
+
+**Act 1 — Counter: session teleport.** A Go HTTP server keeps an in-memory counter. The presenter creates an actor from a standard OCI image (already suspended), resumes it, and increments: 1, 2. They manually suspend via the Substrate API, then flood the cluster with other actors until the **original Pod is occupied by someone else**. In a traditional system, the counter would be stuck or cold-boot from scratch. Substrate resumes the actor on a **brand-new Pod** — the **Pod IP changes** — and the counter reads **3**. Living process memory, teleported; hardware stays anonymous.
+
+**Act 2 — Secret Agent: zero-idle by default.** A toy agent returns its volatile "secret code" from RAM, then **calls the Substrate API to suspend itself** after each request. While waiting for input, it is suspended — logically present, **costing nothing**. The gateway intercepts inbound traffic and resumes the actor in milliseconds; when work finishes, the worker Pod is freed automatically. The presenter registers **24 agents on the same eight Pods**, triggers a parallel pulse, and watches Substrate multiplex them in real time: resume → handle → auto-suspend. **3:1 oversubscription** before the flashy finale.
+
+**Act 3 — Boardroom UI: swarm at 30× density.** A visual layer built on the same APIs as `kubectl-ate` (workers at the bottom, actors in the middle). A "lead architect" actor lands on a Pod; sub-agents fan out in parallel. Unrelated users create **resource contention** — warm Pods get snatched — without context leakage. When planning finishes, the architect **hibernates to GCS**, vacating hardware entirely. A reviewer later recalls it onto a **different Pod** (IP `.117` → `.121`) with **in-memory state intact**. The stress finale dispatches **~250 concurrent agents** onto eight slots. The demo claims replacing **~45-second cold boots** with **sub-second rehydration**; treat the "97% efficiency" line as launch-stage marketing, but the mechanism — snapshot idle actors, free workers instantly — is the real story.
+
+Full RAM and filesystem snapshots run through [gVisor](https://gvisor.dev/) checkpoint/restore under the hood. The team calls it "instant session teleport." After watching the Pod IP change while the counter keeps counting, that label feels fair.
 
 ### How it works (simplified)
 
