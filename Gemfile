@@ -29,3 +29,7 @@ gem "http_parser.rb", "~> 0.6.0", :platforms => [:jruby]
 
 # kramdown parser for GitHub Flavored Markdown
 gem "kramdown-parser-gfm"
+
+# Pin sass-embedded: 1.100+ fails to compile on Ruby 3.1 CI runners
+# (NameError: uninitialized constant JSON::Fragment). Last known good: 1.99.0.
+gem "sass-embedded", "~> 1.99.0", "< 1.100"
