@@ -243,5 +243,3 @@ Start cmux. Start Studio. Load something that fits. Point Pi at `localhost:8888/
 ---
 
 *cmux: [cmux.com](https://cmux.com/) · [github.com/manaflow-ai/cmux](https://github.com/manaflow-ai/cmux). Pi: [pi.dev](https://pi.dev/) · [github.com/earendil-works/pi](https://github.com/earendil-works/pi). Unsloth Studio: [unsloth.ai/docs/new/studio](https://unsloth.ai/docs/new/studio). GLM-5.2: [unsloth.ai/docs/models/glm-5.2](https://unsloth.ai/docs/models/glm-5.2).*
-
-Wait I accidentally included wrong footer link - let me fix that when writing. I'll remove the Agent Substrate line from the file.
