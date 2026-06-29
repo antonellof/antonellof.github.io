@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "The Local Agent Trio: cmux + Pi + Unsloth Studio (and the GLM-5.2 Reality Check)"
+title: "The Local Agent Trio: cmux + Pi + Unsloth Studio"
 date: 2026-06-29
 categories: [How-To]
 tags: [cmux, Pi Agent, Unsloth, GLM-5.2, Local LLM, llama.cpp, macOS, Agentic AI]
