@@ -12,9 +12,9 @@ Your agent remembers the conversation until someone refreshes the browser.
 
 Then it does not. No event log. No checkpoint. No way to resume mid-task after a deploy, a pod eviction, or a human-in-the-loop pause that lasted six hours. The framework handled the reasoning loop beautifully. Nobody handled **execution durability**.
 
-In May 2026, Google open-sourced [**AX (Agent Executor)**](https://github.com/google/ax) — a **distributed agent runtime** that coordinates agentic loops, logs every step, recovers from failures, and audits tool calls through a single controller. It is explicitly **not** an agent framework, **not** a managed service, and **not** tied to one model. It is the **orchestration layer** — *how* execution proceeds, resumes, and gets inspected.
+In 2026, Google open-sourced [**AX (Agent Executor)**](https://github.com/google/ax) — a **distributed agent runtime** that coordinates agentic loops, logs every step, recovers from failures, and audits tool calls through a single controller. It is explicitly **not** an agent framework, **not** a managed service, and **not** tied to one model. It is the **orchestration layer** — *how* execution proceeds, resumes, and gets inspected.
 
-For **where** agent processes physically run at scale (suspend, multiplex, teleport across Pods), see the companion post on [Agent Substrate](https://www.fratepietro.com/2026/agent-substrate-zero-idle-kubernetes/) — an independent project AX recommends for Kubernetes deployment.
+For **where** agent processes physically run at scale (suspend, multiplex, teleport across Pods), see the companion post on [Agent Substrate](https://www.fratepietro.com/2026/agent-substrate-zero-idle-kubernetes/) — the other open-source project Google's GKE team shipped at the same time, and the recommended Kubernetes target for AX.
 
 ## Why agents need a runtime, not just a framework
 
@@ -32,7 +32,7 @@ AX is in **active early development**. PRs are temporarily paused. Protocols **w
 
 ## What AX provides
 
-Announced May 20, 2026, AX ships as a Go runtime plus `ax` CLI:
+AX ships as a Go runtime plus an `ax` CLI:
 
 - **Single-writer controller** — one source of truth for execution state
 - **Durable event log** — SQLite by default; replay on recovery
@@ -169,7 +169,7 @@ go install github.com/google/ax/cmd/ax@latest
 # See manifests/README.md in the ax repo
 ```
 
-Google's [GKE blog](https://cloud.google.com/blog/products/containers-kubernetes/bringing-you-agent-sandbox-on-gke-and-agent-substrate) covers Agent Sandbox on GKE plus Substrate as the agent-first compute layer — with AX as the runtime on top. Substrate is an **independent** project Google integrates with; it did not author Substrate.
+Google's [GKE blog](https://cloud.google.com/blog/products/containers-kubernetes/bringing-you-agent-sandbox-on-gke-and-agent-substrate) covers Agent Sandbox on GKE plus Substrate as the agent-first compute layer — with AX as the runtime on top. Both AX and Substrate came out of Google's GKE/agent infrastructure work and were announced together; Substrate carries the standard "not an officially supported Google product" disclaimer, but it is a Google-originated open-source project, not a third-party one.
 
 ## Roadmap
 
@@ -212,4 +212,4 @@ Enterprise adoption of agents needs that contract open-sourced. Google shipped i
 
 ---
 
-*AX: [github.com/google/ax](https://github.com/google/ax), [agentexecutor.io](https://agentexecutor.io). Announcement: [Agent Executor blog post](https://cloud.google.com/blog/products/ai-machine-learning/agent-executor-googles-distributed-agent-runtime) (May 20, 2026). Companion post: [Agent Substrate — zero-idle Kubernetes](https://www.fratepietro.com/2026/agent-substrate-zero-idle-kubernetes/).*
+*AX: [github.com/google/ax](https://github.com/google/ax), [agentexecutor.io](https://agentexecutor.io). Announcement: [Agent Executor blog post](https://cloud.google.com/blog/products/ai-machine-learning/agent-executor-googles-distributed-agent-runtime). Companion post: [Agent Substrate — zero-idle Kubernetes](https://www.fratepietro.com/2026/agent-substrate-zero-idle-kubernetes/).*

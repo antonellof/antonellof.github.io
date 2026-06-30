@@ -4,12 +4,12 @@ title: "DwarfStar 4: antirez Bets the Farm on Local Inference Done Right"
 date: 2026-05-30
 categories: [Deep Dive]
 tags: [DwarfStar, DS4, Local Inference, DeepSeek, antirez, Metal, LLM, MoE, Distributed Inference]
-excerpt: "Salvatore Sanfilippo — the mind behind Redis — shipped DwarfStar 4, a purpose-built inference engine for DeepSeek V4 on Apple Silicon. Not another GGUF wrapper: a finished local-AI stack with asymmetric quants, disk-backed KV cache, a native coding agent, and distributed inference across MacBooks. Here's why 13k GitHub stars showed up in a week."
+excerpt: "Salvatore Sanfilippo — the mind behind Redis — shipped DwarfStar 4, a purpose-built inference engine for DeepSeek V4 on Apple Silicon. Not another GGUF wrapper: a finished local-AI stack with asymmetric quants, disk-backed KV cache, a native coding agent, and distributed inference across MacBooks. Here's why it collected over 12k GitHub stars almost overnight."
 ---
 
 Salvatore Sanfilippo — [antirez](https://antirez.com), the person who gave us Redis — has a habit of building things that look obvious in retrospect and impossible before they exist. His latest project, [**DwarfStar 4**](https://github.com/antirez/ds4) (DS4), is no exception: a small, native inference engine laser-focused on running **DeepSeek V4 Flash** (and PRO on monster machines) locally, end to end, without duct tape.
 
-I did not expect it to hit **13,000+ GitHub stars** in roughly a week either. But after reading [antirez's own words on the launch](https://antirez.com/news/165) and his follow-up on [distributed inference](https://antirez.com/news/167), the hype makes sense. Three things converged at once: a quasi-frontier open-weights model fast enough to matter on a laptop, an asymmetric 2/8-bit quantization recipe that actually works, and a decade of local-AI experimentation finally paying off — accelerated, as antirez openly admits, by heavy use of GPT 5.5 during development.
+I did not expect it to blow past **12,000 GitHub stars** within its first few weeks either (it has kept climbing since). But after reading [antirez's own words on the launch](https://antirez.com/news/165) and his follow-up on [distributed inference](https://antirez.com/news/167), the hype makes sense. Three things converged at once: a quasi-frontier open-weights model fast enough to matter on a laptop, an asymmetric 2/8-bit quantization recipe that actually works, and a decade of local-AI experimentation finally paying off — accelerated, as antirez openly admits, by heavy use of GPT 5.5 during development.
 
 This is not a generic GGUF runner. It is a deliberate bet that **local inference should feel finished**, not merely possible.
 
@@ -56,7 +56,7 @@ DS4 ships as a handful of native binaries — no Python runtime holding the crit
 | `./ds4-bench` | Throughput measurement at context frontiers |
 | `./ds4-eval` | 92-item integration regression suite with TUI |
 
-**Backends:** Metal is the primary target (MacBook Pro/Studio). CUDA builds target the [NVIDIA DGX Spark](https://www.nvidia.com/en-us/data-center/dgx-spark/) and generic Linux GPUs. AMD ROCm lives on a separate community-maintained branch — antirez does not have the hardware to gatekeep it on main.
+**Backends:** Metal is the primary target (MacBook Pro/Studio, from 96 GB up). CUDA builds target the [NVIDIA DGX Spark](https://www.nvidia.com/en-us/data-center/dgx-spark/) (GB10) and generic Linux GPUs. The README also lists **Strix Halo (ROCm)** — Framework Desktop and similar unified-memory AMD systems — as a backend target, so this is no longer a Mac-only story.
 
 The engine borrows quant layouts, GGUF ecosystem knowledge, and kernel ideas from llama.cpp/GGML (acknowledged prominently in the LICENSE), but `ds4.c` is its own inference path — not a fork you `./llama-cli` your way through.
 

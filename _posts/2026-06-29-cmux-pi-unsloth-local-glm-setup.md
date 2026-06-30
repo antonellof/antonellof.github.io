@@ -8,9 +8,9 @@ excerpt: "Run a serious local agent stack on macOS: cmux for parallel agent pane
 render_with_liquid: false
 ---
 
-Cloud agents are convenient until you want privacy, predictable costs, or a model that does not rate-limit you at 2am during a refactor. The problem is not finding *a* local model — it is wiring **terminal**, **inference**, and **agent harness** into something you can actually live in for eight hours.
+Cloud agents are convenient right up until you care about privacy, predictable costs, or a model that will not rate-limit you at 2am in the middle of a refactor. And here is the thing nobody tells you: the hard part of going local is not finding *a* model. It is wiring the **terminal**, the **inference server**, and the **agent harness** into something you can actually sit in front of for eight hours without wanting to throw the laptop out the window.
 
-This is the trio setup I have been running:
+After a fair amount of trial and error, this is the trio I keep coming back to:
 
 1. **[cmux](https://cmux.com/)** — native macOS terminal (Ghostty-based) built for juggling multiple AI agents in parallel
 2. **[Unsloth Studio](https://unsloth.ai/docs/new/studio)** — local web UI + OpenAI/Anthropic-compatible API over `llama.cpp`
@@ -32,7 +32,7 @@ Each piece is replaceable. Swap Pi for Claude Code pointed at the same Unsloth e
 
 ## Layer 1: cmux — the agent-aware terminal
 
-[cmux](https://github.com/manaflow-ai/cmux) is an open-source, native macOS terminal built on [Ghostty](https://ghostty.org/) (GPU-accelerated, lightweight Swift/AppKit shell). It is explicitly designed for **running multiple coding agents in parallel** — not generic tab management with a AI sticker slapped on.
+[cmux](https://github.com/manaflow-ai/cmux) is an open-source (GPL-3.0), native macOS terminal from [Manaflow](https://cmux.com/) (a YC S24 company). It is not a fork of [Ghostty](https://ghostty.org/) — it embeds `libghostty` as a rendering library inside a Swift/AppKit app, the same way other apps embed WebKit, and even reads your existing `~/.config/ghostty/config`. It was built for one specific itch: **running a pile of coding agents in parallel** without losing track of which one is blocked on you. The author got tired of staring at a wall of Ghostty splits where every Claude Code notification just said "Claude is waiting for your input" with no idea *which* Claude. That frustration is the whole product, and it shows.
 
 What matters for agent work:
 
@@ -73,7 +73,7 @@ API key lives under **Settings → API** (printed once at startup as `sk-unsloth
 
 ### GLM-5.2 on the model picker — and the OOM badge
 
-[GLM-5.2](https://unsloth.ai/docs/models/glm-5.2) is Z.ai's open MoE: **744B total parameters**, **40B active**, **1M context**, shipped as Unsloth Dynamic GGUFs. Unsloth positions the `UD-IQ2_M` (2-bit) quant at roughly **245 GB RAM** minimum — realistic on a 256 GB unified-memory Mac Studio, not on a laptop without creative offloading.
+[GLM-5.2](https://unsloth.ai/docs/models/glm-5.2) is Z.ai's open Mixture-of-Experts model. The [official model card](https://huggingface.co/zai-org/GLM-5.2) lists it at **753B parameters** with a **1M-token context** under an MIT license (Unsloth's docs round it to ~744B; the Studio picker in my screenshot reads 753.9B). Being an MoE, only a slice of those weights fire per token — but you still have to hold the entire thing in memory. Unsloth's `UD-IQ2_M` 2-bit quant needs roughly **240–245 GB of RAM or unified memory** — realistic on a 256 GB Mac Studio, not on a laptop without serious SSD offloading.
 
 Here is what my Studio instance looked like on launch day:
 
@@ -96,12 +96,12 @@ Terminal logs worth knowing:
 
 ## Layer 3: Pi — the minimal coding harness
 
-[Pi](https://github.com/earendil-works/pi) (package `@earendil-works/pi-coding-agent`) is a **minimal terminal coding agent** — four default tools (`read`, `write`, `edit`, `bash`), multi-provider LLM support, extensions/skills/packages, no baked-in sub-agent circus. Mario Zechner's philosophy: adapt the harness to your workflow, not the other way around.
+[Pi](https://github.com/earendil-works/pi) (package `@earendil-works/pi-coding-agent`) is a **minimal terminal coding agent** by Mario Zechner — yes, the [libGDX](https://libgdx.com/) guy. It ships with exactly four tools (`read`, `write`, `edit`, `bash`), the shortest system prompt of any serious agent, multi-provider LLM support, and no baked-in sub-agent circus. The philosophy is "adapt the harness to your workflow, not the other way around" — anything the bigger agents bundle, you add yourself as a TypeScript extension or a Pi package. It is MIT, now stewarded by [Earendil](https://github.com/earendil-works), and it is the agent core underneath OpenClaw, so it is battle-tested despite the minimalism.
 
 Install:
 
 ```bash
-npm install -g @earendil-works/pi-coding-agent
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 pi
 ```
 
@@ -185,7 +185,7 @@ cmux notify --title "Pi" --subtitle "my-app" --body "Ready for review"
 
 ## GLM-5.2: when the trio earns its name
 
-GLM-5.2 is why you bother with Unsloth instead of a 7B Ollama pull. MoE architecture means 744B knowledge with 40B active compute per forward pass — agentic coding, long-horizon reasoning, 1M context. Unsloth's Dynamic GGUF quants target accuracy preservation at aggressive compression.
+GLM-5.2 is why you bother with Unsloth at all instead of pulling a 7B model from Ollama and calling it a day. The MoE design means the model carries frontier-scale knowledge while only activating a fraction of its parameters per token — you get agentic coding, long-horizon reasoning, and a 1M-token context out of weights that, quantized, fit in a (very large) workstation. Unsloth's Dynamic GGUF quants are the part doing the heavy lifting: they compress aggressively while trying hard to preserve accuracy.
 
 Realistic hardware map (from [Unsloth docs](https://unsloth.ai/docs/models/glm-5.2)):
 
@@ -236,9 +236,9 @@ The trio is not "install one app and pray." It is a deliberate split:
 - **Unsloth** — search, download, serve, and API-wrap open models including GLM-5.2
 - **Pi** — minimal harness that respects your repo and your keys
 
-GLM-5.2 on Unsloth is the headline. The OOM badge in the screenshot is the honest subtitle: frontier local AI is here, but RAM is still the gate. The good news — the workflow works today with smaller models, and the upgrade path is "load a bigger GGUF in the same Studio picker," not "rebuild your entire stack."
+GLM-5.2 on Unsloth is the headline. The OOM badge in my screenshot is the honest footnote: frontier-class local AI genuinely exists now, but RAM is still the gate, and most of us are not sitting on 256 GB of unified memory yet. That is fine. The setup earns its keep today with a model that fits, and the day you do upgrade, the path is "pick a bigger GGUF in the same picker" — not "rewrite your whole workflow."
 
-Start cmux. Start Studio. Load something that fits. Point Pi at `localhost:8888/v1`. Refactor something you would not ship to OpenRouter.
+So: start cmux, start Studio, load whatever your machine can hold, and point Pi at `localhost:8888/v1`. Then go refactor something you would rather not have shipped off to a cloud provider in the first place.
 
 ---
 

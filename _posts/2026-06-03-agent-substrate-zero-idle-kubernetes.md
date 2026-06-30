@@ -4,17 +4,19 @@ title: "Agent Substrate: Zero-Idle Kubernetes for Stateful AI Agents"
 date: 2026-06-03
 categories: [Architecture]
 tags: [Agent Substrate, Kubernetes, gVisor, Agentic AI, MCP, Zero-Idle, Infrastructure]
-excerpt: "Agent Substrate is an independent open-source project — not a Google product — that multiplexes thousands of stateful agent sessions onto a small pool of Kubernetes pods. Zero-idle architecture, gVisor snapshots, and 32:1 oversubscription. Here's how session teleport actually works."
+excerpt: "Agent Substrate is an open-source project from Google's GKE team that multiplexes thousands of stateful agent sessions onto a small pool of Kubernetes pods. Zero-idle architecture, gVisor snapshots, and ~30:1 oversubscription. Here's how session teleport actually works."
 render_with_liquid: false
 ---
 
-Your agent demo works. Your agent in production bleeds money.
+Every agent demo I have seen works beautifully. Then someone puts it in production and the cloud bill starts climbing for no obvious reason.
 
-The demo keeps one process warm on a laptop. Production maps one user session to one Kubernetes Pod, bills you for RAM while the agent waits on a model, a tool, or a human, and still loses context when you scale to zero. Modern agents spend **upwards of 90% of their time idle** — yet standard cloud setups force a brutal choice: pay for expensive memory to sit empty, or cold-boot and lose volatile state.
+The reason is boring once you see it. The demo keeps one process warm on a laptop. Production maps one user session to one Kubernetes Pod, bills you for RAM while the agent sits waiting on a model, a tool, or a human, and still loses its context the moment you scale to zero. Agents spend most of their life idle — waiting for an event, a token, a click — yet the standard setup forces a bad trade: pay for memory that does nothing, or cold-boot and throw away volatile state.
 
-[**Agent Substrate**](https://github.com/agent-substrate/substrate) is an **independent** open-source project (under the `agent-substrate` org) aimed at that compute problem. It is **not** an officially supported Google product — the README says so explicitly. What it provides is a **session-centric, zero-idle architecture** on Kubernetes: decouple logical **actors** from physical **workers**, suspend and resume process state in under a second, and multiplex many stateful sessions onto a small warm pod pool.
+[**Agent Substrate**](https://github.com/agent-substrate/substrate) is an open-source project aimed squarely at that problem. It was introduced in 2026 by Google's GKE team — announced alongside [Agent Sandbox on GKE](https://cloud.google.com/blog/products/containers-kubernetes/bringing-you-agent-sandbox-on-gke-and-agent-substrate) and [Agent Executor (AX)](https://www.fratepietro.com/2026/google-ax-distributed-agent-runtime/) — and developed in the open with the community (Solo.io's [kagent](https://kagent.dev/) team contributed work from a near-identical project). One caveat worth stating up front, because the README states it: this is **not an officially supported Google product**. It is a Google-led open-source effort, not a GCP service with an SLA.
 
-This is the **compute layer** for agent infrastructure — where processes live, hibernate, and teleport. For the **orchestration layer** (event logs, trajectory forking, audit trails), see the companion post on [Google AX](https://www.fratepietro.com/2026/google-ax-distributed-agent-runtime/).
+What it gives you is a **session-centric, zero-idle architecture** on Kubernetes: decouple logical **actors** from physical **workers**, suspend and resume process state in well under a second, and multiplex many stateful sessions onto a small warm pool of pods.
+
+This is the **compute layer** of the agent stack — where processes live, hibernate, and teleport. For the **orchestration layer** (event logs, trajectory forking, audit trails), see the companion post on [Google AX](https://www.fratepietro.com/2026/google-ax-distributed-agent-runtime/).
 
 ## The stateful gap Kubernetes does not solve
 
@@ -34,7 +36,7 @@ Frameworks solve reasoning. Substrate solves **density and session mobility**.
 
 [Agent Substrate](https://github.com/agent-substrate/substrate) is **not** an SDK for building agents. It is infrastructure for **running** them — a control plane on top of Kubernetes that maps many **actors** onto fewer **workers** (Pods).
 
-It is also **not** a Google product. It lives under [`agent-substrate`](https://github.com/agent-substrate), ships Apache 2.0, and has its own [ate-dev community](https://groups.google.com/g/ate-dev). Google integrates with Substrate (GKE blogs, [AX deployment guide](https://github.com/google/ax/blob/main/manifests/README.md)) — that is partnership, not ownership.
+A note on what it is *not*, because there has been some confusion: it is not a managed, officially supported Google product. The README is explicit about that. But it *is* a Google-originated open-source project — the GKE team introduced it, it builds directly on Agent Sandbox's secure runtime and snapshotting, and it lives in its own [`agent-substrate`](https://github.com/agent-substrate) org with an open [community](https://groups.google.com/g/ate-dev). So "Google built it in the open, but does not support it as a product" is the accurate reading — not "independent project Google merely partners with."
 
 Two vocabulary words appear in every demo and doc:
 
@@ -45,7 +47,7 @@ Actors are often **suspended upon creation**. They exist logically, cost nothing
 
 ## Watch the launch demo
 
-The [Agent Substrate OSS Launch Demo](https://www.youtube.com/watch?v=ZEzkCFJkzjY) (~8 minutes) walks through the counter demo, a "secret agent" zero-idle pattern, and a boardroom UI scaling to **~250 concurrent agents on eight GKE worker pods** — a **32:1 oversubscription ratio**.
+The [Agent Substrate OSS Launch Demo](https://www.youtube.com/watch?v=ZEzkCFJkzjY) (~8 minutes) walks through the counter demo, a "secret agent" zero-idle pattern, and a boardroom UI scaling to **~250 concurrent agents on eight GKE worker pods** — call it **~30:1 oversubscription**, which lines up with the project's own "30× more actors than pods" framing.
 
 <div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; margin: 1.5rem 0;">
   <iframe style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" src="https://www.youtube.com/embed/ZEzkCFJkzjY" title="Agent Substrate OSS Launch Demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
