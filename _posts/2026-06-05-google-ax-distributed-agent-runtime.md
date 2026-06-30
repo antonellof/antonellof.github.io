@@ -8,9 +8,9 @@ excerpt: "Google open-sourced AX (Agent Executor): a self-hosted distributed age
 render_with_liquid: false
 ---
 
-Your agent remembers the conversation until someone refreshes the browser.
+Here is a failure mode I have hit more than once: an agent is halfway through a long task, then a deploy rolls the pods, a node gets evicted, or a human-in-the-loop step sits unanswered for six hours — and the whole run is just gone.
 
-Then it does not. No event log. No checkpoint. No way to resume mid-task after a deploy, a pod eviction, or a human-in-the-loop pause that lasted six hours. The framework handled the reasoning loop beautifully. Nobody handled **execution durability**.
+No event log. No checkpoint. No way to pick up where it left off. The framework handled the reasoning loop beautifully, but nobody handled the boring part: **execution durability**.
 
 In 2026, Google open-sourced [**AX (Agent Executor)**](https://github.com/google/ax) — a **distributed agent runtime** that coordinates agentic loops, logs every step, recovers from failures, and audits tool calls through a single controller. It is explicitly **not** an agent framework, **not** a managed service, and **not** tied to one model. It is the **orchestration layer** — *how* execution proceeds, resumes, and gets inspected.
 
