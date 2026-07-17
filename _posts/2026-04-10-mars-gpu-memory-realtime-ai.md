@@ -13,7 +13,7 @@ The useful memory is 600 ms old, from a different modality than the query, and l
 
 An embodied perception stack already knows more than "find me the nearest vector" at query time. It carries an active **track id**, a **dialogue session**, an **AR room**, or a **robot sub-task** — the right answer almost always lives inside that *episode*. [MARS](https://github.com/antonellof/MARS) (*Memory for Autonomous Real-time Systems*) is what you get when that observation becomes a kernel parameter rather than a host-side filter.
 
-**[Read the full paper (PDF)](https://www.fratepietro.com/papers/MARS/main.pdf)**
+**[Read the full paper (PDF)](https://www.fratepietro.com/papers/MARS/main.pdf)** · **[Zenodo record](https://zenodo.org/records/21409007)** ([DOI: 10.5281/zenodo.21409007](https://doi.org/10.5281/zenodo.21409007))
 
 The defensible claim is narrow and, I think, the interesting one: **one device-resident API consolidating episode scope, temporal decay, cross-modal BFS, and streaming append**, at a latency within about **1.3× of filtered FAISS** (`IDSelectorRange`) and **33× below the unfiltered exhaustive sweep** a stack without an ID filter would run. On the kids-ball benchmark the episode-scoped path is near-flat at **~200 µs p99 from N=10K to N=1M**. Everything else in this post is what that contract buys — and what it does not.
 
@@ -167,6 +167,7 @@ I'm particularly interested in feedback from anyone building real-time perceptio
 
 **Links:**
 - [Paper (PDF)](https://www.fratepietro.com/papers/MARS/main.pdf)
+- [Zenodo](https://zenodo.org/records/21409007) — [DOI 10.5281/zenodo.21409007](https://doi.org/10.5281/zenodo.21409007)
 - [GitHub repository](https://github.com/antonellof/MARS)
 - [Architecture deep dive](https://github.com/antonellof/MARS/blob/main/docs/ARCHITECTURE.md)
 - [Benchmark results](https://github.com/antonellof/MARS/blob/main/docs/BENCHMARKS.md)
