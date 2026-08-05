@@ -72,7 +72,7 @@ curl -s -X POST http://127.0.0.1:8383/v1/chat/completions \
   -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":32,"temperature":0}'
 ```
 
-Flags mirror llama.cpp (`-m`, `-p`, `-n`, `-t`, `--temp`, `-ngl`, …) — full reference in [`docs/CLI.md`](https://github.com/antonellof/ferrox/blob/main/docs/CLI.md).
+Flags mirror llama.cpp (`-m`, `-p`, `-n`, `-t`, `--temp`, `-ngl`, …) — full reference in [`docs/CLI.md`](https://github.com/antonellof/ferrox/blob/main/docs/CLI.md). One Ferrox-specific knob worth knowing: `--ctk q8_0` (or `FERROX_CTK=q8_0`) stores the KV cache as Q8_0 on Metal instead of the default `f16`, which trades a bit of precision for a smaller KV footprint on longer contexts.
 
 ## Why performance had to be provable, not claimed
 
@@ -82,32 +82,35 @@ Every local-inference project claims to be fast. Almost none show the methodolog
 - Warm runs, greedy decoding, multiple reps, median reported.
 - Every headline number is pinned to a JSON receipt in the repo — regenerate it and the numbers either hold or they don't.
 
-That discipline turned up real results on an Apple M2 Pro (Host B). Headline numbers below are **predicted tok/s** from the fair-chat suite in [`benchmarks/RESULTS.md`](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md) — Gap is `llama / ferrox` (under 1.0 means Ferrox is faster):
+That discipline turned up real results on an Apple M2 Pro (Host B). Headline numbers below are **predicted tok/s** from the fair-chat suite in [`benchmarks/RESULTS.md`](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md) — Gap is `llama / ferrox` (under 1.0 means Ferrox is faster; near-parity is within ~5%):
 
 | Model | Backend | Ferrox | llama.cpp | Gap |
 |---|---|---|---|---|
-| Llama-3.1-8B Q4_K_M | Metal | 26.9 tok/s | 27.8 tok/s | ~1.03× (near parity) |
-| Llama-3.2-1B Q4_K_M | Metal | 141.4 tok/s | 136.2 tok/s | ~0.96× (Ferrox) |
-| TinyLlama-1.1B Q8_0 | Metal | 116.7 tok/s | 109.9 tok/s | ~0.94× (Ferrox) |
-| TinyLlama-1.1B Q8_0 | CPU | 44.6 tok/s | 38.2 tok/s | ~0.86× (Ferrox) |
-| Qwen2.5-0.5B Q8_0 | Metal | 192.1 tok/s | 123.0 tok/s | ~0.64× (Ferrox) |
-| SmolLM2-135M Q8_0 | Metal | 283.7 tok/s | 193.5 tok/s | ~0.68× (Ferrox) |
-| OLMoE-1B-7B Q4_0 | CPU | 17.9 tok/s | 19.7 tok/s | ~1.10× (llama) |
-| Mistral-7B Q4_K_M | Metal | 30.7 tok/s | 32.1 tok/s | ~1.04× (near parity) |
+| Llama-3.1-8B Q4_K_M | Metal | 28.3 tok/s | 27.6 tok/s | ~0.97× (parity / Ferrox) |
+| Llama-3.2-1B Q4_K_M | Metal | 140.8 tok/s | 140.8 tok/s | 1.00× (parity) |
+| TinyLlama-1.1B Q8_0 | Metal | 117.9 tok/s | 113.7 tok/s | ~0.96× (parity) |
+| Qwen2.5-0.5B Q8_0 | Metal | 196.1 tok/s | 132.8 tok/s | ~0.68× (Ferrox) |
+| SmolLM2-135M Q8_0 | Metal | 290.2 tok/s | 241.2 tok/s | ~0.83× (Ferrox) |
+| Gemma-3-1B Q8_0 | Metal | 94.1 tok/s | 81.7 tok/s | ~0.87× (Ferrox) |
+| OLMoE-1B-7B Q4_0 | Metal | 88.4 tok/s | 156.8 tok/s | ~1.77× (llama) |
+| Mistral-7B Q4_K_M | Metal | 31.4 tok/s | 33.3 tok/s | ~1.06× (near parity) |
+| Phi-4-mini Q4_K_M | Metal | 50.0 tok/s | 53.1 tok/s | ~1.06× (near parity) |
 
-On the CLI one-shot path (`ferrox` vs `llama-cli`), Llama-3.1-8B Metal lands at an exact **1.00×** tie (28.64 vs 28.60 pred). That was the moment I felt the engine had earned its existence rather than just being an academic exercise.
+The north-star pin is the one that matters most to me: **Llama-3.1-8B on Metal** is now **~0.97×** — Ferrox slightly ahead of llama.cpp on the same host and GGUF (28.27 vs 27.55 pred). On the CLI one-shot path it is an exact **1.00×** tie (28.85 vs 28.64). That is the moment the engine stopped feeling like an academic exercise.
 
-Honest caveats from the same pin set: **OLMoE on Metal** still trails llama.cpp badly (~15× on fair-chat) — MoE CPU is close, MoE Metal is not done. Gemma-3 / Phi-3 Metal decode sits around 0.7–0.8× llama.cpp. Full methodology and every raw pin live in the RESULTS file.
+The other big movement since the first pins: **OLMoE on Metal**. Early receipts were roughly **~15×** behind llama.cpp (~10 tok/s). After Metal expert-placement work it sits at **88.4 vs 156.8** (~1.77×) — still trailing, but in a completely different league. Gemma-3 Metal flipped from trailing to ahead. Full methodology and every raw pin live in the RESULTS file.
 
 ### Re-running the suite
 
 If you want to regenerate the receipts yourself (same host, same GGUFs, both engines):
 
 ```bash
-python3 benchmarks/run_suite.py
+python3 benchmarks/run_suite.py --skip-missing --fit-host
+# optional CLI mode pins:
+python3 benchmarks/run_suite.py --skip-missing --fit-host --mode cli
 ```
 
-That overwrites pins under `benchmarks/receipts/pins/` and regenerates `RESULTS.md` via `render_results.py`. No invented numbers — if a pin is missing, the table says so.
+That overwrites pins under `benchmarks/receipts/pins/` and regenerates `RESULTS.md` via `render_results.py`. No invented numbers — if a pin is missing, the table says so. `--fit-host` skips models that do not fit the machine (and skips CUDA on darwin).
 
 ## Where the wins came from
 
@@ -115,7 +118,7 @@ Two architectural choices did most of the work:
 
 **Fusing dequantization into the matmul.** Quantized weights (4-bit, 8-bit) never get expanded into a full-precision buffer. The dequant math happens inline as part of the dot product, so you pay for it once, in cache, rather than as a separate memory-bound pass.
 
-**Architecture-specific GPU paths.** Models aren't structurally identical — Qwen has per-head QK-normalization, Gemma-3 uses sliding-window attention and GeGLU, Phi-3 fuses its QKV and FFN projections. Ferrox implements dedicated Metal kernels for each of these instead of forcing every model through one generic attention path. That's precisely why small Qwen and SmolLM2 models beat llama.cpp on Metal by a wide margin — the kernel matches the actual computation shape instead of paying overhead for generality it doesn't need.
+**Architecture-specific GPU paths.** Models aren't structurally identical — Qwen has per-head QK-normalization, Gemma-3 uses sliding-window attention and GeGLU, Phi-3 fuses its QKV and FFN projections. Ferrox implements dedicated Metal kernels for each of these instead of forcing every model through one generic attention path. That's precisely why small Qwen and SmolLM2 models beat llama.cpp on Metal by a wide margin — the kernel matches the actual computation shape instead of paying overhead for generality it doesn't need. The same idea drove the OLMoE Metal jump: expert placement on GPU, not a generic dense path wearing a MoE costume.
 
 ## Utility: why this is more than a benchmark exercise
 
@@ -123,17 +126,18 @@ Beyond the numbers, Ferrox is a genuinely practical way to run models locally:
 
 1. **Single static binary.** No Python environment, no CUDA-toolkit version roulette, no `pip install` dependency resolution. Copy the binary, point it at a `.gguf` file, run.
 2. **Drop-in for existing tooling.** The OpenAI-compatible server means any app already wired for ChatGPT's API — LangChain scripts, custom chat frontends, eval harnesses — works against a fully local model with a one-line base-URL change.
-3. **MoE support, not just dense models.** [OLMoE-1B-7B](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md) runs and is close to llama.cpp on CPU; Metal MoE is the open gap. That still matters because Mixture-of-Experts is where a lot of frontier-model efficiency gains are coming from — an inference engine that only handles dense transformers is increasingly incomplete.
-4. **Backend flexibility for the hardware you actually own.** CPU-only laptop, Apple Silicon, Nvidia GPU — one codebase covers all three, rather than three separate tools.
+3. **MoE support, not just dense models.** [OLMoE-1B-7B](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md) runs on CPU and Metal with verified pins. Metal MoE still trails llama.cpp, but the gap is closing. That matters because Mixture-of-Experts is where a lot of frontier-model efficiency gains are coming from — an inference engine that only handles dense transformers is increasingly incomplete.
+4. **Backend flexibility for the hardware you actually own.** CPU-only laptop, Apple Silicon, Nvidia GPU — one codebase covers all three, rather than three separate tools. Quantized KV (`--ctk q8_0` on Metal) helps when context length starts eating unified memory.
 
 ## What isn't done yet
 
 I'd rather undersell this than oversell it:
 
-- **CUDA performance work is paused.** It compiles and runs correctly, but the fair-chat tuning that got Metal to parity hasn't been done for CUDA yet — no current CUDA pin in the suite.
-- **Metal prefill still trails llama.cpp** on larger models — decode is where the parity numbers live; time-to-first-token has more room.
-- **MoE on Metal** needs real work (see the OLMoE Metal pin above).
-- **Frontier-scale MoE models** — Kimi, GLM, DeepSeek — have dedicated primitives and synthetic decoder stacks in the codebase, but no real multi-hundred-billion-parameter checkpoint has been run end-to-end. That is a hardware problem as much as a software one.
+- **CUDA performance work is paused.** The suite supports `--backend cuda`, but there is no current CUDA pin — needs a GPU host.
+- **Metal prefill** still needs watching against llama.cpp on larger models — decode is where the parity numbers live; `prompt_per_second` has more room.
+- **MoE on Metal** improved a lot, but OLMoE is still ~1.8× behind llama.cpp. Qwen2-MoE / Mixtral pins are missing on Host B (GGUF / RAM).
+- **Gemma-4-E2B** is explicitly refused today (needs a dedicated engine path) — both Ferrox and Homebrew llama.cpp reject it.
+- **Frontier-scale MoE / MLA** — Kimi, GLM, DeepSeek — have primitives and synthetic stacks, but no real multi-hundred-billion-parameter checkpoint has been run end-to-end. That is a hardware problem as much as a software one.
 
 ## Conclusion
 
