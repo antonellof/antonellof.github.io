@@ -7,7 +7,7 @@ tags: [Rust, AI, LLM, Local Inference, Performance]
 excerpt: "Why I built Ferrox, a pure-Rust GGUF inference engine, and what it took to match llama.cpp's performance on real models — with receipts, not vibes."
 ---
 
-I've spent the last few months building [Ferrox](https://github.com/antonellof/ferrox), a pure-Rust inference engine for running open LLMs locally — dense models and Mixture-of-Experts, on CPU, Apple Metal, or CUDA. No bindings to llama.cpp or ggml, no wrapping an existing runtime. Every kernel, every loader, every scheduling decision written from scratch.
+I've spent the last few days building [Ferrox](https://github.com/antonellof/ferrox), a pure-Rust inference engine for running open LLMs locally — dense models and Mixture-of-Experts, on CPU, Apple Metal, or CUDA. No bindings to llama.cpp or ggml, no wrapping an existing runtime. Every kernel, every loader, every scheduling decision written from scratch.
 
 The obvious question is "why, when llama.cpp already exists and is excellent." The honest answer: I wanted to understand inference at a level deeper than "run the binary," and I wanted a project where every performance claim had to be earned against a real, well-known baseline rather than asserted.
 
