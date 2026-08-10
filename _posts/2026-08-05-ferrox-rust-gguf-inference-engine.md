@@ -1,28 +1,32 @@
 ---
 layout: post
-title: "Ferrox: Building a Rust Inference Engine That Matches llama.cpp"
+title: "Ferrox: a Rust GGUF engine, measured against llama.cpp"
 date: 2026-08-05
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, Performance]
-excerpt: "Why I built Ferrox, a pure-Rust GGUF inference engine, and what it took to match llama.cpp's performance on real models — with receipts, not vibes."
+excerpt: "I built Ferrox, a pure-Rust GGUF inference engine. Not to replace llama.cpp, but to get MoE expert residency right — and every speed claim is pinned against llama.cpp on the same machine."
 ---
 
-I've spent the last few days building [Ferrox](https://github.com/antonellof/ferrox), a pure-Rust inference engine for running open LLMs locally — dense models and Mixture-of-Experts, on CPU, Apple Metal, or CUDA. No bindings to llama.cpp or ggml, no wrapping an existing runtime. Every kernel, every loader, every scheduling decision written from scratch.
+I built [Ferrox](https://github.com/antonellof/ferrox) over the last couple of weeks. It is a pure-Rust inference engine for GGUF models: dense and MoE, on CPU, Apple Metal, or CUDA. No bindings to llama.cpp. No wrapper around ggml.
 
-The obvious question is "why, when llama.cpp already exists and is excellent." The honest answer: I wanted to understand inference at a level deeper than "run the binary," and I wanted a project where every performance claim had to be earned against a real, well-known baseline rather than asserted.
+## Why another engine
 
-## What Ferrox actually is
+llama.cpp is excellent. I am not trying to catch up with every feature it has.
 
-At its core, Ferrox loads a [GGUF](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md) file — the same quantized model format llama.cpp uses — and runs inference on it. Two ways to use it:
+What I want is MoE on machines that cannot fit the whole model in VRAM. Not layer offload. Expert-level residency: watch which experts fire during decode, keep those resident, evict the rest. To do that well the router, the KV cache and the memory manager have to be designed together. That is about the only good reason to write a runtime from scratch. If you just need "run a Llama GGUF on my Mac", use llama.cpp.
 
-- **A CLI**, `ferrox`, with llama.cpp-compatible flags. Point it at a model, get a completion.
-- **A server**, `ferrox-server`, that speaks the OpenAI chat-completions API. Anything built against ChatGPT's API — a chat UI, an agent framework, a test harness — works against it unchanged, just pointed at `localhost`.
+## What it does today
 
-Under the hood, model weights are memory-mapped straight off disk and never fully decompressed into RAM — dequantization happens fused into the dot product, at the moment the weight is actually needed. That's the same trick llama.cpp uses, and it's a big part of why both engines can run an 8B-parameter model on a laptop with a few gigabytes of memory instead of thirty.
+Two binaries:
 
-## Try it: build, download a GGUF, run
+- `ferrox` — CLI with flags close to llama.cpp (`-m`, `-p`, `-n`, `-ngl`, `--ctk`, …)
+- `ferrox-server` — OpenAI-compatible HTTP (`/v1/chat/completions`, plus a few extras)
 
-Ferrox does not ship weights. You download a local `.gguf` the same way you would for llama.cpp — I recommend the [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`pip install -U huggingface_hub`):
+Weights stay quantized on mmap. Dequant happens inside the matmul, not as a separate pass. Same idea as llama.cpp, which is why an 8B model fits on a laptop without thirty gigabytes of RAM.
+
+Supported families (verified pins, not just "it loads"): Llama 3.x, TinyLlama, SmolLM2, Qwen2.5/Qwen3, Gemma-2/3, Phi-3/4, Mistral-7B, OLMoE. Gemma-4 has a dedicated path. MLA / DeepSeek-style stacks are partial. Details: [`docs/MODELS.md`](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md) and [`docs/FEATURES.md`](https://github.com/antonellof/ferrox/blob/main/docs/FEATURES.md).
+
+## Build, download, run
 
 ```bash
 git clone https://github.com/antonellof/ferrox.git
@@ -30,129 +34,103 @@ cd ferrox
 cargo build --release -p ferrox-cli -p ferrox-server --features metal
 
 mkdir -p models
-
-# ~1.2 GB smoke test
 hf download TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF \
   tinyllama-1.1b-chat-v1.0.Q8_0.gguf --local-dir models
 
-# Optional: small instruct chat model (~0.8 GB)
-hf download bartowski/Llama-3.2-1B-Instruct-GGUF \
-  Llama-3.2-1B-Instruct-Q4_K_M.gguf --local-dir models
-```
-
-Handy starting points from the [README](https://github.com/antonellof/ferrox):
-
-| Model | Hugging Face repo | File |
-|---|---|---|
-| TinyLlama 1.1B Chat Q8_0 | [TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF](https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF) | `tinyllama-1.1b-chat-v1.0.Q8_0.gguf` |
-| Llama 3.2 1B Instruct Q4_K_M | [bartowski/Llama-3.2-1B-Instruct-GGUF](https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF) | `Llama-3.2-1B-Instruct-Q4_K_M.gguf` |
-| Llama 3.1 8B Instruct Q4_K_M | [bartowski/Meta-Llama-3.1-8B-Instruct-GGUF](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF) | `Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf` |
-| SmolLM2 135M Instruct Q8_0 | [bartowski/SmolLM2-135M-Instruct-GGUF](https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF) | `SmolLM2-135M-Instruct-Q8_0.gguf` |
-
-Prefer `Q4_K_M` for everyday use, `Q8_0` for tiny smoke tests. More GGUFs: [llama.cpp-compatible models on Hugging Face](https://huggingface.co/models?apps=llama.cpp&sort=trending). What Ferrox verifies today: [`docs/MODELS.md`](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md).
-
-Then:
-
-```bash
-# One-shot completion
 ./target/release/ferrox -m models/tinyllama-1.1b-chat-v1.0.Q8_0.gguf \
   -p "The capital of France is" -n 32 --temp 0 --no-cnv
 
-# Chat on Metal (default when the GGUF ships a chat template)
+# chat template + Metal
 ./target/release/ferrox -m models/Llama-3.2-1B-Instruct-Q4_K_M.gguf \
   -p "What is 2+2?" -n 64 --temp 0 -dev metal -ngl all
 
-# OpenAI-compatible server
 ./target/release/ferrox-server \
   -m models/tinyllama-1.1b-chat-v1.0.Q8_0.gguf \
   --host 127.0.0.1 --port 8383 -dev metal -ngl all
-
-curl -s -X POST http://127.0.0.1:8383/v1/chat/completions \
-  -H 'content-type: application/json' \
-  -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":32,"temperature":0}'
 ```
 
-Flags mirror llama.cpp (`-m`, `-p`, `-n`, `-t`, `--temp`, `-ngl`, …) — full reference in [`docs/CLI.md`](https://github.com/antonellof/ferrox/blob/main/docs/CLI.md). One Ferrox-specific knob worth knowing: `--ctk q8_0` (or `FERROX_CTK=q8_0`) stores the KV cache as Q8_0 on Metal instead of the default `f16`, which trades a bit of precision for a smaller KV footprint on longer contexts.
+Useful GGUFs from the [README](https://github.com/antonellof/ferrox):
 
-## Why performance had to be provable, not claimed
+| Model | Repo | File |
+|---|---|---|
+| TinyLlama 1.1B Chat Q8_0 | [TheBloke/…](https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF) | `tinyllama-1.1b-chat-v1.0.Q8_0.gguf` |
+| Llama 3.2 1B Instruct Q4_K_M | [bartowski/…](https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF) | `Llama-3.2-1B-Instruct-Q4_K_M.gguf` |
+| Llama 3.1 8B Instruct Q4_K_M | [bartowski/…](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF) | `Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf` |
+| SmolLM2 135M Instruct Q8_0 | [bartowski/…](https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF) | `SmolLM2-135M-Instruct-Q8_0.gguf` |
 
-Every local-inference project claims to be fast. Almost none show the methodology. I didn't want to add noise to that pile, so the whole benchmarking setup in Ferrox is built to make claims falsifiable:
+Prefer `Q4_K_M` day to day. `Q8_0` for tiny tests. On Metal, `--ctk q8_0` shrinks the KV cache if you need longer context.
 
-- Same machine, same GGUF file, same backend, for both engines, back to back.
-- Warm runs, greedy decoding, multiple reps, median reported.
-- Every headline number is pinned to a JSON receipt in the repo — regenerate it and the numbers either hold or they don't.
+There is also `ferrox pull` for Hugging Face downloads, and `ferrox bench` if you want llama-bench-style numbers without going through HTTP.
 
-That discipline turned up real results on an Apple M2 Pro (Host B). Headline numbers below are **predicted tok/s** from the fair-chat suite in [`benchmarks/RESULTS.md`](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md) — Gap is `llama / ferrox` (under 1.0 means Ferrox is faster; near-parity is within ~5%):
+## Numbers, with receipts
 
-| Model | Backend | Ferrox | llama.cpp | Gap |
-|---|---|---|---|---|
-| Llama-3.1-8B Q4_K_M | Metal | 28.3 tok/s | 27.6 tok/s | ~0.97× (parity / Ferrox) |
-| Llama-3.2-1B Q4_K_M | Metal | 140.8 tok/s | 140.8 tok/s | 1.00× (parity) |
-| TinyLlama-1.1B Q8_0 | Metal | 117.9 tok/s | 113.7 tok/s | ~0.96× (parity) |
-| Qwen2.5-0.5B Q8_0 | Metal | 196.1 tok/s | 132.8 tok/s | ~0.68× (Ferrox) |
-| SmolLM2-135M Q8_0 | Metal | 290.2 tok/s | 241.2 tok/s | ~0.83× (Ferrox) |
-| Gemma-3-1B Q8_0 | Metal | 94.1 tok/s | 81.7 tok/s | ~0.87× (Ferrox) |
-| OLMoE-1B-7B Q4_0 | Metal | 88.4 tok/s | 156.8 tok/s | ~1.77× (llama) |
-| Mistral-7B Q4_K_M | Metal | 31.4 tok/s | 33.3 tok/s | ~1.06× (near parity) |
-| Phi-4-mini Q4_K_M | Metal | 50.0 tok/s | 53.1 tok/s | ~1.06× (near parity) |
+I do not trust speed claims without a method. Ferrox pins every comparison: same Mac (M2 Pro), same GGUF, same backend, both engines, median of warm runs. Full file: [`benchmarks/RESULTS.md`](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md).
 
-The north-star pin is the one that matters most to me: **Llama-3.1-8B on Metal** is now **~0.97×** — Ferrox slightly ahead of llama.cpp on the same host and GGUF (28.27 vs 27.55 pred). On the CLI one-shot path it is an exact **1.00×** tie (28.85 vs 28.64). That is the moment the engine stopped feeling like an academic exercise.
+There are now two tracks:
 
-The other big movement since the first pins: **OLMoE on Metal**. Early receipts were roughly **~15×** behind llama.cpp (~10 tok/s). After Metal expert-placement work it sits at **88.4 vs 156.8** (~1.77×) — still trailing, but in a completely different league. Gemma-3 Metal flipped from trailing to ahead. Full methodology and every raw pin live in the RESULTS file.
+1. **Engine** — `ferrox bench` vs `llama-bench` (no HTTP, no chat template). `pp512` = prefill, `tg128` = decode.
+2. **Serving** — HTTP fair-chat via `python3 benchmarks/run_suite.py`
 
-### Re-running the suite
+Gap = `llama / ferrox`. Under 1.0 means Ferrox is faster. Near-parity means within ~5%.
 
-If you want to regenerate the receipts yourself (same host, same GGUFs, both engines):
+Engine decode on Metal (what I care about for chat):
+
+| Model | tg128 Ferrox | tg128 llama.cpp | Gap |
+|---|---|---|---|
+| Llama-3.1-8B Q4_K_M | 27.4 | 26.9 | ~0.98× |
+| Llama-3.2-1B Q4_K_M | 59.5 | 57.9 | ~0.97× |
+| Llama-3.2-3B Q4_K_M | 59.8 | 58.4 | ~0.98× |
+| Mistral-7B Q4_K_M | 19.7 | 18.0 | ~0.91× |
+| Gemma-3-1B Q8_0 | 58.3 | 52.8 | ~0.91× |
+
+So on decode for these dense models, we are at parity or a bit ahead. That took a lot of Metal work: porting llama.cpp-style `mul_mm` across quants, FA-vec attention, batched FFN during prefill, scratch buffer pooling.
+
+Prefill is still behind. On Llama-3.1-8B Metal, `pp512` is **~1.47×** slower than llama.cpp (170 vs 251 tok/s). CPU decode is behind almost everywhere. OLMoE Metal decode improved a lot from the first pins (we were ~15× off; now closer to ~1.3–1.8× depending on the track) but MoE is not "done".
+
+Re-run it yourself:
 
 ```bash
+# engine table
+ferrox bench --suite
+
+# serving / fair-chat pins
 python3 benchmarks/run_suite.py --skip-missing --fit-host
-# optional CLI mode pins:
-python3 benchmarks/run_suite.py --skip-missing --fit-host --mode cli
 ```
 
-That overwrites pins under `benchmarks/receipts/pins/` and regenerates `RESULTS.md` via `render_results.py`. No invented numbers — if a pin is missing, the table says so. `--fit-host` skips models that do not fit the machine (and skips CUDA on darwin).
+If there is no pin, the table says so. I do not invent numbers.
 
-## Where the wins came from
+## What I learned so far
 
-Two architectural choices did most of the work:
+A few things that stuck, after many evenings staring at tok/s:
 
-**Fusing dequantization into the matmul.** Quantized weights (4-bit, 8-bit) never get expanded into a full-precision buffer. The dequant math happens inline as part of the dot product, so you pay for it once, in cache, rather than as a separate memory-bound pass.
+- **Decode and prefill are different problems.** Getting tg128 to parity does not mean pp512 follows. Batched Metal GEMM and FA-vec prefill helped, but llama.cpp still wins big on long prompt throughput.
+- **MoE Metal needs its own path.** A dense kernel wearing a MoE costume loses. Expert placement, `mul_mm_id`, fused groups: that is where the OLMoE gap went from embarrassing to merely bad.
+- **Fair comparison is harder than it looks.** Forcing both engines to the same thread count made llama.cpp look worse on this Mac, because it already prefers performance cores. The suite no longer forces `-t`.
+- **CUDA was quietly broken.** `--features cuda` on the CLI did not enable CUDA in `ferrox-core`. Prefill never hit the GPU. Fixed now; tuning is still ahead.
 
-**Architecture-specific GPU paths.** Models aren't structurally identical — Qwen has per-head QK-normalization, Gemma-3 uses sliding-window attention and GeGLU, Phi-3 fuses its QKV and FFN projections. Ferrox implements dedicated Metal kernels for each of these instead of forcing every model through one generic attention path. That's precisely why small Qwen and SmolLM2 models beat llama.cpp on Metal by a wide margin — the kernel matches the actual computation shape instead of paying overhead for generality it doesn't need. The same idea drove the OLMoE Metal jump: expert placement on GPU, not a generic dense path wearing a MoE costume.
+None of this is glamorous. It is the work.
 
-## Utility: why this is more than a benchmark exercise
+## What is next
 
-Beyond the numbers, Ferrox is a genuinely practical way to run models locally:
+From the [roadmap](https://github.com/antonellof/ferrox/blob/main/docs/ROADMAP.md):
 
-1. **Single static binary.** No Python environment, no CUDA-toolkit version roulette, no `pip install` dependency resolution. Copy the binary, point it at a `.gguf` file, run.
-2. **Drop-in for existing tooling.** The OpenAI-compatible server means any app already wired for ChatGPT's API — LangChain scripts, custom chat frontends, eval harnesses — works against a fully local model with a one-line base-URL change.
-3. **MoE support, not just dense models.** [OLMoE-1B-7B](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md) runs on CPU and Metal with verified pins. Metal MoE still trails llama.cpp, but the gap is closing. That matters because Mixture-of-Experts is where a lot of frontier-model efficiency gains are coming from — an inference engine that only handles dense transformers is increasingly incomplete.
-4. **Backend flexibility for the hardware you actually own.** CPU-only laptop, Apple Silicon, Nvidia GPU — one codebase covers all three, rather than three separate tools. Quantized KV (`--ctk q8_0` on Metal) helps when context length starts eating unified memory.
+1. Run bigger models on the same hardware (Qwen3 35B-A3B-class on a box that today only likes 8B).
+2. Act on residency plans: stream cold MoE experts, tighter KV (`turbo3`, quantized CTK).
+3. Hybrid CPU/GPU expert placement.
+4. CUDA tuning (it builds and runs; no serious pass yet).
+5. Tool calling / fuller OpenAI surface, Docker images.
 
-## What isn't done yet
+If you want to point an IDE or agent at the local server, there is a short cookbook: [`docs/AGENTS_COOKBOOK.md`](https://github.com/antonellof/ferrox/blob/main/docs/AGENTS_COOKBOOK.md).
 
-I'd rather undersell this than oversell it:
+## Closing
 
-- **CUDA performance work is paused.** The suite supports `--backend cuda`, but there is no current CUDA pin — needs a GPU host.
-- **Metal prefill** still needs watching against llama.cpp on larger models — decode is where the parity numbers live; `prompt_per_second` has more room.
-- **MoE on Metal** improved a lot, but OLMoE is still ~1.8× behind llama.cpp. Qwen2-MoE / Mixtral pins are missing on Host B (GGUF / RAM).
-- **Gemma-4-E2B** is explicitly refused today (needs a dedicated engine path) — both Ferrox and Homebrew llama.cpp reject it.
-- **Frontier-scale MoE / MLA** — Kimi, GLM, DeepSeek — have primitives and synthetic stacks, but no real multi-hundred-billion-parameter checkpoint has been run end-to-end. That is a hardware problem as much as a software one.
+Ferrox is Apache-2.0. Stars are nice; PRs and failed pins are more useful. If you try it and something is slow or wrong, open an issue with the GGUF name, backend, and the `ferrox bench` output.
 
-## Conclusion
+I am a coder, not a blogger. I will keep writing these myself.
 
-Ferrox started as a way to actually understand inference internals instead of treating them as a black box behind a `pip install`. It turned into something I'd genuinely reach for: a single binary that loads a GGUF file and either chats in the terminal or serves an OpenAI-compatible API, at speeds that hold up against the reference implementation on real hardware, with the receipts to prove it.
-
-If you're curious how quantized inference works under the hood, want a dependency-free way to run open models locally, or just want to poke holes in the benchmark methodology, the repo is Apache-2.0 and open for issues and PRs.
-
-**Further resources:**
-- [Ferrox on GitHub](https://github.com/antonellof/ferrox)
-- [`benchmarks/RESULTS.md`](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md) — full pinned benchmark suite
-- [`docs/MODELS.md`](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md) — supported architectures and verification status
-- [`docs/CLI.md`](https://github.com/antonellof/ferrox/blob/main/docs/CLI.md) — CLI flags
-- [GGUF format spec](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md)
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) — the reference this project measures itself against
-
----
-
-*Building Ferrox from August 2026, on why performance claims should come with receipts.*
+**Links**
+- [github.com/antonellof/ferrox](https://github.com/antonellof/ferrox)
+- [benchmarks/RESULTS.md](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md)
+- [docs/FEATURES.md](https://github.com/antonellof/ferrox/blob/main/docs/FEATURES.md)
+- [docs/MODELS.md](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md)
+- [HN discussion](https://news.ycombinator.com/item?id=49180302)
