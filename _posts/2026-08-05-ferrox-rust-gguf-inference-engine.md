@@ -122,15 +122,26 @@ From the [roadmap](https://github.com/antonellof/ferrox/blob/main/docs/ROADMAP.m
 
 If you want to point an IDE or agent at the local server, there is a short cookbook: [`docs/AGENTS_COOKBOOK.md`](https://github.com/antonellof/ferrox/blob/main/docs/AGENTS_COOKBOOK.md).
 
+## AI full disclosure
+
+This software is developed with strong assistance from Cursor, Grok 4.5, GPT 5.6, and Claude Fable 5, with humans leading the ideas, testing, and debugging. We say this openly because it shaped how the project was built. If you are not happy with AI-developed code, this software is not for you.
+
+The acknowledgement below is equally important: this would not exist without llama.cpp and GGML, largely written by hand.
+
+## Acknowledgements to llama.cpp and GGML
+
+Ferrox does not link against GGML, but it exists thanks to the path opened by the [llama.cpp](https://github.com/ggml-org/llama.cpp) project and the kernels, quantization formats, GGUF ecosystem, and hard-won engineering knowledge developed there. We are thankful and indebted to llama.cpp and its contributors. Their implementation, kernels, tests, and design choices were an essential reference while building this pure-Rust GGUF / MoE inference path.
+
+Some source-level pieces are retained or adapted here under the MIT license — notably IQ quantization codebook tables — and many other pieces (GGUF layouts, quant/dot semantics, CLI and server conventions) were written independently against that public design. For this reason, and because we are genuinely grateful, we keep the GGML authors' copyright notice in [`docs/THIRD_PARTY_NOTICES.md`](https://github.com/antonellof/ferrox/blob/main/docs/THIRD_PARTY_NOTICES.md).
+
 ## Closing
 
 Ferrox is Apache-2.0. Stars are nice; PRs and failed pins are more useful. If you try it and something is slow or wrong, open an issue with the GGUF name, backend, and the `ferrox bench` output.
-
-I am a coder, not a blogger. I will keep writing these myself.
 
 **Links**
 - [github.com/antonellof/ferrox](https://github.com/antonellof/ferrox)
 - [benchmarks/RESULTS.md](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md)
 - [docs/FEATURES.md](https://github.com/antonellof/ferrox/blob/main/docs/FEATURES.md)
 - [docs/MODELS.md](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md)
+- [docs/THIRD_PARTY_NOTICES.md](https://github.com/antonellof/ferrox/blob/main/docs/THIRD_PARTY_NOTICES.md)
 - [HN discussion](https://news.ycombinator.com/item?id=49180302)
