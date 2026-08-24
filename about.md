@@ -22,13 +22,16 @@ This blog is where I share my experiences and learnings in software architecture
 ![Semgrep](https://img.shields.io/badge/Semgrep-5C3DF8?style=flat&logo=semgrep&logoColor=white) ![Bandit](https://img.shields.io/badge/Bandit-3776AB?style=flat&logo=python&logoColor=white) ![Gitleaks](https://img.shields.io/badge/Gitleaks-F05032?style=flat&logo=git&logoColor=white) ![Trivy](https://img.shields.io/badge/Trivy-1904DA?style=flat&logo=aquasecurity&logoColor=white)
 
 **Frameworks & Libraries:**
-![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white) ![Actix](https://img.shields.io/badge/Actix-000000?style=flat&logo=rust&logoColor=white) ![Tonic](https://img.shields.io/badge/Tonic_gRPC-000000?style=flat&logo=rust&logoColor=white) ![gRPC](https://img.shields.io/badge/gRPC-244c5a?style=flat&logo=grpc&logoColor=white) ![QUIC](https://img.shields.io/badge/QUIC-000000?style=flat) ![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat&logo=next.js&logoColor=white) ![Angular](https://img.shields.io/badge/Angular-DD0031?style=flat&logo=angular&logoColor=white) ![React](https://img.shields.io/badge/React-61DAFB?style=flat&logo=react&logoColor=black) ![GraphQL](https://img.shields.io/badge/GraphQL-E10098?style=flat&logo=graphql&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white) ![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat&logo=mongodb&logoColor=white) ![RocksDB](https://img.shields.io/badge/RocksDB-F46800?style=flat&logo=rocksdb&logoColor=white) ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white) ![shadcn/ui](https://img.shields.io/badge/shadcn/ui-000000?style=flat&logo=react&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white) ![Actix](https://img.shields.io/badge/Actix-000000?style=flat&logo=rust&logoColor=white) ![Tonic](https://img.shields.io/badge/Tonic_gRPC-000000?style=flat&logo=rust&logoColor=white) ![gRPC](https://img.shields.io/badge/gRPC-244c5a?style=flat&logo=grpc&logoColor=white) ![QUIC](https://img.shields.io/badge/QUIC-000000?style=flat) ![libp2p](https://img.shields.io/badge/libp2p-3423A6?style=flat&logo=ipfs&logoColor=white) ![BitTorrent](https://img.shields.io/badge/BitTorrent-000000?style=flat&logo=bittorrent&logoColor=white) ![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat&logo=next.js&logoColor=white) ![Angular](https://img.shields.io/badge/Angular-DD0031?style=flat&logo=angular&logoColor=white) ![React](https://img.shields.io/badge/React-61DAFB?style=flat&logo=react&logoColor=black) ![GraphQL](https://img.shields.io/badge/GraphQL-E10098?style=flat&logo=graphql&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white) ![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat&logo=mongodb&logoColor=white) ![RocksDB](https://img.shields.io/badge/RocksDB-F46800?style=flat&logo=rocksdb&logoColor=white) ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white) ![shadcn/ui](https://img.shields.io/badge/shadcn/ui-000000?style=flat&logo=react&logoColor=white)
+
+**GPU & accelerators:**
+![CUDA](https://img.shields.io/badge/CUDA-76B900?style=flat&logo=nvidia&logoColor=white) ![Metal](https://img.shields.io/badge/Metal-000000?style=flat&logo=apple&logoColor=white) ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-000000?style=flat&logo=apple&logoColor=white) ![NEON](https://img.shields.io/badge/ARM_NEON-0091BD?style=flat&logo=arm&logoColor=white) ![AVX2](https://img.shields.io/badge/AVX2-0071C5?style=flat&logo=intel&logoColor=white) ![SIMD](https://img.shields.io/badge/SIMD-222222?style=flat) ![GGUF](https://img.shields.io/badge/GGUF-222222?style=flat)
 
 **Vector search & databases:**
-![Qdrant](https://img.shields.io/badge/Qdrant-DC244C?style=flat&logo=qdrant&logoColor=white) ![HNSW](https://img.shields.io/badge/HNSW-222222?style=flat)
+![Qdrant](https://img.shields.io/badge/Qdrant-DC244C?style=flat&logo=qdrant&logoColor=white) ![HNSW](https://img.shields.io/badge/HNSW-222222?style=flat) ![FAISS](https://img.shields.io/badge/FAISS-0081FB?style=flat&logo=meta&logoColor=white) ![cuVS](https://img.shields.io/badge/cuVS-76B900?style=flat&logo=nvidia&logoColor=white)
 
 **LLM inference engines:**
-![vLLM](https://img.shields.io/badge/vLLM-394260?style=flat) ![SGLang](https://img.shields.io/badge/SGLang-000000?style=flat) ![llama.cpp](https://img.shields.io/badge/llama.cpp-222222?style=flat) ![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-76B900?style=flat&logo=nvidia&logoColor=white)
+![vLLM](https://img.shields.io/badge/vLLM-394260?style=flat) ![SGLang](https://img.shields.io/badge/SGLang-000000?style=flat) ![llama.cpp](https://img.shields.io/badge/llama.cpp-222222?style=flat) ![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-76B900?style=flat&logo=nvidia&logoColor=white) ![MLX](https://img.shields.io/badge/MLX-000000?style=flat&logo=apple&logoColor=white) ![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat&logo=ollama&logoColor=white) ![Ferrox](https://img.shields.io/badge/Ferrox-b4400b?style=flat&logo=rust&logoColor=white)
 
 ## Services Used
 
@@ -43,13 +46,21 @@ This blog is where I share my experiences and learnings in software architecture
 
 ## Notable Projects
 
+- **[Ferrox](https://github.com/antonellof/ferrox)** [![Crates.io](https://img.shields.io/crates/v/ferrox-inference.svg)](https://crates.io/crates/ferrox-inference) - Pure-Rust GGUF inference engine: quantized CPU, Apple Metal and CUDA kernels, mixture-of-experts support, and an OpenAI-compatible server. Every speed claim is benchmarked head-to-head against llama.cpp on the same host and file. Write-ups: *[a Rust GGUF engine, measured against llama.cpp](/2026/ferrox-rust-gguf-inference-engine/)* and *[v0.9.1](/2026/ferrox-v0-9-1-rust-gguf-engine-llama-cpp/)*.
+
 - **[MARS](https://github.com/antonellof/MARS)** - GPU-resident multimodal memory substrate for real-time embodied AI. Episode-scoped retrieval as a CUDA kernel-level primitive: 197 µs p99 at N=1M with perfect cross-modal `hit@15`, 33× faster than FAISS-Flat-GPU on the same hardware. Companion paper: *[MARS: Episode-Scoped GPU Retrieval for Real-Time Embodied AI](https://www.fratepietro.com/papers/MARS/main.pdf)*.
 
 - **[Cognitora inference](https://github.com/antonellof/cognitora-inference)** - Open-source, datacenter-scale LLM orchestration above vLLM, SGLang, TensorRT-LLM, and llama.cpp: KV-aware routing, prefill/decode disaggregation, multi-tier KV cache, static Rust binaries for bare metal, Kubernetes, or cloud.
 
+- **[Rondine](https://github.com/antonellof/rondine)** 🐦 - Hardware-aware local LLM launcher. Detects the machine, picks a model that fits, and applies tuned configs for Mac, NVIDIA GPUs and DGX Spark instead of leaving you to do flag archaeology. Write-up: *[Rondine: hardware-aware local LLM serving](/2026/rondine-hardware-aware-local-llm-launcher/)*.
+
+- **[s0-cli](https://github.com/antonellof/s0-cli)** - LLM-driven CLI agent that finds security vulnerabilities and AI-slop patterns: stub auth, hallucinated imports, dummy crypto, prompt-injection sinks. Hybrid of classic scanners (semgrep, bandit, gitleaks, trivy) with LLM triage on top, plus a self-optimizing meta-harness loop. Write-up: *[the meta-harness that tunes its own scanner](/2026/s0-cli-meta-harness-security-scanner/)*.
+
 - **[VittoriaDB](https://github.com/antonellof/VittoriaDB)** - Zero-configuration embedded vector database with HNSW indexing, ACID storage, and REST API. Single Go binary for local AI development.
 
 - **[DistX](https://github.com/antonellof/DistX)** [![Crates.io](https://img.shields.io/crates/v/distx.svg)](https://crates.io/crates/distx) - High-performance vector database written in Rust. Features HNSW indexing with SIMD optimizations, Qdrant-compatible REST API, and gRPC support.
+
+- **[PeerClaw](https://github.com/antonellof/peerclaw)** - Decentralized P2P AI agent network in a single static binary. BitTorrent shape applied to inference: peers share compute, agents earn and spend tokens for it.
 
 ## Connect
 
