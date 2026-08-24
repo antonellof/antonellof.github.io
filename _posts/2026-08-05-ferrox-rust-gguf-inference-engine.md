@@ -4,10 +4,25 @@ title: "Ferrox: a Rust GGUF engine, measured against llama.cpp"
 date: 2026-08-05
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, Performance]
-excerpt: "I built Ferrox, a pure-Rust GGUF inference engine. Not to replace llama.cpp, but to get MoE expert residency right — and every speed claim is pinned against llama.cpp on the same machine."
+excerpt: "I built Ferrox, a pure-Rust GGUF inference engine. Not to replace llama.cpp, but to get MoE expert residency right, and every speed claim is pinned against llama.cpp on the same machine."
 ---
 
+*Written August 2026, at v0.4. Ferrox has moved a long way since, so the sections below carry update notes where the numbers changed.*
+
 I built [Ferrox](https://github.com/antonellof/ferrox) over the last couple of weeks. It is a pure-Rust inference engine for GGUF models: dense and MoE, on CPU, Apple Metal, or CUDA. No bindings to llama.cpp. No wrapper around ggml.
+
+## Where Ferrox is now
+
+Nineteen days on, Ferrox is at [v0.9.1](https://github.com/antonellof/ferrox/releases/tag/v0.9.1). The short version:
+
+- MoE prefill on Metal runs 2.4x faster. OLMoE went from 587 to 1402 tok/s, closing the gap against llama.cpp from 2.62x to 1.11x.
+- Twelve crates are on crates.io. `cargo install ferrox-cli --features metal` gets you the binary, `ferrox-inference = "0.9"` gets you the library.
+- Chat templates come from the checkpoint's own Jinja string rather than a guess at which of six families it belongs to.
+- A web UI called Ferrox Studio, built on React and assistant-ui, running as its own app against the same public API any other client uses.
+- `ferrox parity` compares first-token logit distributions against llama.cpp's own library, which is how I found a rotary embedding bug I had shipped days earlier.
+- The benchmark runner refuses to time anything on a machine too busy for the number to mean something.
+
+Full write-up: [Ferrox v0.9.1: a Rust GGUF engine, measured against llama.cpp](/2026/ferrox-v0-9-1-rust-gguf-engine-llama-cpp/).
 
 ## Why another engine
 
@@ -19,12 +34,14 @@ What I want is MoE on machines that cannot fit the whole model in VRAM. Not laye
 
 Two binaries:
 
-- `ferrox` — CLI with flags close to llama.cpp (`-m`, `-p`, `-n`, `-ngl`, `--ctk`, …)
-- `ferrox-server` — OpenAI-compatible HTTP (`/v1/chat/completions`, plus a few extras)
+- `ferrox`: CLI with flags close to llama.cpp (`-m`, `-p`, `-n`, `-ngl`, `--ctk`, …)
+- `ferrox-server`: OpenAI-compatible HTTP (`/v1/chat/completions`, plus a few extras)
 
 Weights stay quantized on mmap. Dequant happens inside the matmul, not as a separate pass. Same idea as llama.cpp, which is why an 8B model fits on a laptop without thirty gigabytes of RAM.
 
 Supported families (verified pins, not just "it loads"): Llama 3.x, TinyLlama, SmolLM2, Qwen2.5/Qwen3, Gemma-2/3, Phi-3/4, Mistral-7B, OLMoE. Gemma-4 has a dedicated path. MLA / DeepSeek-style stacks are partial. Details: [`docs/MODELS.md`](https://github.com/antonellof/ferrox/blob/main/docs/MODELS.md) and [`docs/FEATURES.md`](https://github.com/antonellof/ferrox/blob/main/docs/FEATURES.md).
+
+*Update: gpt-oss runs on CPU now, with attention sinks and the swiglu clamp checked against llama.cpp's reference logits. The low-bit tiers IQ2_XS, IQ2_S, IQ3_S and IQ1_M decode bit-exact, and F16 checkpoints load. Rotary embeddings use the correct layout for 24 more architectures, including exaone, nemotron, starcoder2 and dots1, which was a real bug producing plausible text with wrong attention.*
 
 ## Build, download, run
 
@@ -68,8 +85,8 @@ I do not trust speed claims without a method. Ferrox pins every comparison: same
 
 There are now two tracks:
 
-1. **Engine** — `ferrox bench` vs `llama-bench` (no HTTP, no chat template). `pp512` = prefill, `tg128` = decode.
-2. **Serving** — HTTP fair-chat via `python3 benchmarks/run_suite.py`
+1. **Engine**: `ferrox bench` vs `llama-bench` (no HTTP, no chat template). `pp512` = prefill, `tg128` = decode.
+2. **Serving**: HTTP fair-chat via `python3 benchmarks/run_suite.py`
 
 Gap = `llama / ferrox`. Under 1.0 means Ferrox is faster. Near-parity means within ~5%.
 
@@ -85,7 +102,9 @@ Engine decode on Metal (what I care about for chat):
 
 So on decode for these dense models, we are at parity or a bit ahead. That took a lot of Metal work: porting llama.cpp-style `mul_mm` across quants, FA-vec attention, batched FFN during prefill, scratch buffer pooling.
 
-Prefill is still behind. On Llama-3.1-8B Metal, `pp512` is **~1.47×** slower than llama.cpp (170 vs 251 tok/s). CPU decode is behind almost everywhere. OLMoE Metal decode improved a lot from the first pins (we were ~15× off; now closer to ~1.3–1.8× depending on the track) but MoE is not "done".
+Prefill is still behind. On Llama-3.1-8B Metal, `pp512` is **~1.47×** slower than llama.cpp (170 vs 251 tok/s). CPU decode is behind almost everywhere. OLMoE Metal decode improved a lot from the first pins (we were ~15× off. now closer to ~1.3–1.8× depending on the track) but MoE is not "done".
+
+*Update: dense Metal prefill closed. Every dense row now sits at 1.02x to 1.08x, and simdgroup-MMA flash attention moved Qwen3-0.6B from 1936 to 3400 tok/s. MoE prefill went from 2.62x behind to 1.11x by moving MoE layers into the same fused command encoder the dense layers already used. CPU decode is still the widest gap and still unfixed.*
 
 Re-run it yourself:
 
@@ -106,7 +125,9 @@ A few things that stuck, after many evenings staring at tok/s:
 - **Decode and prefill are different problems.** Getting tg128 to parity does not mean pp512 follows. Batched Metal GEMM and FA-vec prefill helped, but llama.cpp still wins big on long prompt throughput.
 - **MoE Metal needs its own path.** A dense kernel wearing a MoE costume loses. Expert placement, `mul_mm_id`, fused groups: that is where the OLMoE gap went from embarrassing to merely bad.
 - **Fair comparison is harder than it looks.** Forcing both engines to the same thread count made llama.cpp look worse on this Mac, because it already prefers performance cores. The suite no longer forces `-t`.
-- **CUDA was quietly broken.** `--features cuda` on the CLI did not enable CUDA in `ferrox-core`. Prefill never hit the GPU. Fixed now; tuning is still ahead.
+- **CUDA was quietly broken.** `--features cuda` on the CLI did not enable CUDA in `ferrox-core`. Prefill never hit the GPU. Fixed now, and tuning is still ahead.
+
+*Update: CUDA still compiles and runs with no pinned benchmark host and no published receipts, so treat a Windows or Linux install as CPU-only in practice. Saying that plainly in the docs was easier than pretending otherwise.*
 
 None of this is glamorous. It is the work.
 
@@ -117,7 +138,7 @@ From the [roadmap](https://github.com/antonellof/ferrox/blob/main/docs/ROADMAP.m
 1. Run bigger models on the same hardware (Qwen3 35B-A3B-class on a box that today only likes 8B).
 2. Act on residency plans: stream cold MoE experts, tighter KV (`turbo3`, quantized CTK).
 3. Hybrid CPU/GPU expert placement.
-4. CUDA tuning (it builds and runs; no serious pass yet).
+4. CUDA tuning. It builds and runs, with no serious pass yet.
 5. Tool calling / fuller OpenAI surface, Docker images.
 
 If you want to point an IDE or agent at the local server, there is a short cookbook: [`docs/AGENTS_COOKBOOK.md`](https://github.com/antonellof/ferrox/blob/main/docs/AGENTS_COOKBOOK.md).
@@ -132,11 +153,11 @@ The acknowledgement below is equally important: this would not exist without lla
 
 Ferrox does not link against GGML, but it exists thanks to the path opened by the [llama.cpp](https://github.com/ggml-org/llama.cpp) project and the kernels, quantization formats, GGUF ecosystem, and hard-won engineering knowledge developed there. We are thankful and indebted to llama.cpp and its contributors. Their implementation, kernels, tests, and design choices were an essential reference while building this pure-Rust GGUF / MoE inference path.
 
-Some source-level pieces are retained or adapted here under the MIT license — notably IQ quantization codebook tables — and many other pieces (GGUF layouts, quant/dot semantics, CLI and server conventions) were written independently against that public design. For this reason, and because we are genuinely grateful, we keep the GGML authors' copyright notice in [`docs/THIRD_PARTY_NOTICES.md`](https://github.com/antonellof/ferrox/blob/main/docs/THIRD_PARTY_NOTICES.md).
+Some source-level pieces are retained or adapted here under the MIT license, notably IQ quantization codebook tables, and many other pieces (GGUF layouts, quant/dot semantics, CLI and server conventions) were written independently against that public design. For this reason, and because we are genuinely grateful, we keep the GGML authors' copyright notice in [`docs/THIRD_PARTY_NOTICES.md`](https://github.com/antonellof/ferrox/blob/main/docs/THIRD_PARTY_NOTICES.md).
 
 ## Closing
 
-Ferrox is Apache-2.0. Stars are nice; PRs and failed pins are more useful. If you try it and something is slow or wrong, open an issue with the GGUF name, backend, and the `ferrox bench` output.
+Ferrox is Apache-2.0. Stars are nice. PRs and failed pins are more useful. If you try it and something is slow or wrong, open an issue with the GGUF name, backend, and the `ferrox bench` output.
 
 **Links**
 - [github.com/antonellof/ferrox](https://github.com/antonellof/ferrox)
