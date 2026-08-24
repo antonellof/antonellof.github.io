@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Ferrox v0.9.1: a Rust GGUF engine, measured against llama.cpp"
+title: "Ferrox: a Rust GGUF engine, measured against llama.cpp"
 date: 2026-08-24
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, Performance, Metal, MoE]
@@ -13,7 +13,9 @@ excerpt: "Ferrox runs GGUF models on CPU, Apple Metal, or CUDA in pure Rust. MoE
 
 I wrote it for one reason. I want mixture-of-experts models running on machines too small to hold them in VRAM, with expert-level residency rather than layer offload: watch which experts fire, keep those resident, evict the rest. Doing that well means designing the router, the KV cache, and the memory manager together. Every speed claim gets pinned against llama.cpp on the same machine, same file, same backend.
 
-The [first post](/2026/ferrox-rust-gguf-inference-engine/) covers the design. This one covers what changed since. [v0.9.1](https://github.com/antonellof/ferrox/releases/tag/v0.9.1) shipped today.
+The [first post](/2026/ferrox-rust-gguf-inference-engine/) covers the design. This one covers what changed since.
+
+*Updated for [v0.10.0](https://github.com/antonellof/ferrox/releases/tag/v0.10.0). Speculative decoding stays lossless at any temperature now, streams survive a dropped connection, and the server prices its KV budget before it loads a model. Those four are at the end.*
 
 ## MoE prefill on Metal got 2.4x faster
 
