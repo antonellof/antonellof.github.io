@@ -7,6 +7,8 @@ tags: [Rust, AI, LLM, Local Inference, Performance, Metal, MoE]
 excerpt: "Ferrox runs GGUF models on CPU, Apple Metal, or CUDA in pure Rust. MoE prefill 2.4x faster on Metal, correct rotary embeddings for 24 more architectures, a standalone web UI, and twelve crates on crates.io."
 ---
 
+<img src="/assets/images/ferrox/ferrox-logo.webp" alt="Ferrox" width="380" />
+
 [Ferrox](https://github.com/antonellof/ferrox) is a pure-Rust inference engine for GGUF models. Dense and mixture-of-experts, on CPU, Apple Metal, or CUDA. No bindings to llama.cpp, no wrapper around ggml. You get a CLI with llama.cpp-style flags and an OpenAI-compatible HTTP server you point your existing tools at.
 
 I wrote it for one reason. I want mixture-of-experts models running on machines too small to hold them in VRAM, with expert-level residency rather than layer offload: watch which experts fire, keep those resident, evict the rest. Doing that well means designing the router, the KV cache, and the memory manager together. Every speed claim gets pinned against llama.cpp on the same machine, same file, same backend.
@@ -109,11 +111,14 @@ One consequence I had not thought about: plenty of templates emit the BOS token 
 
 ## Ferrox Studio
 
+![Ferrox Studio chat screen: a sidebar with Chat, Models, Activity and Connect, a model selector reading Llama 3.2 3B Instruct, and an answer about KV caching with a stat line underneath reading TTFT 889 ms, prefill 17 tok at 19.2 tok/s, decode 99 tok at 47.2 tok/s](/assets/images/ferrox/ferrox-studio-chat.png)
+
+
 A web UI ships alongside the server, rebuilt this week on React, Tailwind, and assistant-ui: streaming chat with markdown and code blocks, a model manager, a live request log, and a Connect screen generating curl and Python snippets from your running server.
 
 It runs as its own app rather than inside the server binary. `npm run dev` in `ui/` proxies to the API, so the server serves the API and nothing else.
 
-Every screen goes through the public HTTP API, so anything the UI does, your own client does too. The stats under each answer come from the server's own timings rather than a browser stopwatch, so time-to-first-token and decode rate are the real numbers: `TTFT 2.29 s · prefill 12.3 tok/s · decode 54.7 tok/s`.
+Every screen goes through the public HTTP API, so anything the UI does, your own client does too. The stats under each answer come from the server's own timings rather than a browser stopwatch, so time-to-first-token and decode rate are the real numbers. That is the grey line under the answer above: `TTFT 889 ms · prefill 17 tok · 19.2 tok/s · decode 99 tok · 47.2 tok/s`, from a 3B on Metal.
 
 Model output never becomes markup. I seeded an answer containing a script tag, an image with an onerror handler, and a javascript: link, then checked the DOM: zero script or image elements, no globals set, the link href emptied, all three shown as text.
 

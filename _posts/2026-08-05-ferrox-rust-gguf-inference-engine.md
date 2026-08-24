@@ -7,6 +7,8 @@ tags: [Rust, AI, LLM, Local Inference, Performance]
 excerpt: "I built Ferrox, a pure-Rust GGUF inference engine. Not to replace llama.cpp, but to get MoE expert residency right, and every speed claim is pinned against llama.cpp on the same machine."
 ---
 
+<img src="/assets/images/ferrox/ferrox-logo.webp" alt="Ferrox" width="380" />
+
 *Written August 2026, at v0.4. Ferrox has moved a long way since, so the sections below carry update notes where the numbers changed.*
 
 I built [Ferrox](https://github.com/antonellof/ferrox) over the last couple of weeks. It is a pure-Rust inference engine for GGUF models: dense and MoE, on CPU, Apple Metal, or CUDA. No bindings to llama.cpp. No wrapper around ggml.
