@@ -1,10 +1,10 @@
 ---
 layout: post
-title: "Ferrox: a Rust GGUF engine, measured against llama.cpp"
+title: "Ferrox on Metal: at parity with llama.cpp, and past it"
 date: 2026-08-24
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, Performance, Metal, MoE]
-excerpt: "Ferrox runs GGUF models on CPU, Apple Metal, or CUDA in pure Rust. MoE prefill 2.4x faster on Metal, correct rotary embeddings for 24 more architectures, a standalone web UI, and twelve crates on crates.io."
+excerpt: "How the Metal backend in my pure-Rust GGUF engine caught llama.cpp and went past it: MoE prefill 2.4x faster, a fused command encoder, and the measurement I was most wrong about."
 ---
 
 <img src="/assets/images/ferrox/ferrox-logo.webp" alt="Ferrox" width="380" />
@@ -15,11 +15,13 @@ I wrote it for one reason. I want mixture-of-experts models running on machines 
 
 The [first post](/2026/ferrox-rust-gguf-inference-engine/) covers the design. This one covers what changed since.
 
-*Updated for [v0.10.0](https://github.com/antonellof/ferrox/releases/tag/v0.10.0). Speculative decoding stays lossless at any temperature now, streams survive a dropped connection, and the server prices its KV budget before it loads a model. Those four are at the end.*
+*Kept current with the [latest release](https://github.com/antonellof/ferrox/releases/latest). Since this went up: Metal passed llama.cpp on decode as well as prefill, speculative decoding stays lossless at any temperature, streams survive a dropped connection, and one binary now does every job. Those are at the end.*
 
 ## MoE prefill on Metal got 2.4x faster
 
 OLMoE-1B-7B went from 587 tok/s to 1402 tok/s on 512-token prefill. Against llama.cpp on the same machine and the same file, the gap closed from 2.62x behind to 1.11x.
+
+*Where it stands at v0.12.0, re-measured in one session with a warmup rep: OLMoE prefill is 1.09x and its decode is at parity.*
 
 Ferrox runs a whole transformer layer inside one Metal command encoder. Dense layers already joined this fused stack. MoE layers did not, so each one paid host-side projections, a separate command buffer for attention, a round trip to the CPU to pick experts, and another command buffer to run them. Roughly 112 command buffers per prefill.
 
@@ -43,10 +45,13 @@ Verifying the change took 54 runs of the CPU-versus-Metal check across dense, Mo
 
 ## Try it
 
+The only build flag you need is your GPU. Everything else is in the binary, and that binary is 19 MB with no interpreter or wheels under it.
+
 ```bash
 cargo install ferrox-cli --features metal
 
-hf download bartowski/Llama-3.2-3B-Instruct-GGUF \
+# Same argument shape as `hf download`, and no Python involved.
+ferrox download bartowski/Llama-3.2-3B-Instruct-GGUF \
   Llama-3.2-3B-Instruct-Q4_K_M.gguf --local-dir models
 
 # Chat model. Ferrox applies the checkpoint's own chat template.
@@ -58,38 +63,38 @@ ferrox -m models/Llama-3.2-3B-Instruct-Q4_K_M.gguf \
   -p "The capital of France is" -n 32 --temp 0 --no-cnv
 
 # OpenAI-compatible server on 127.0.0.1:8383.
-ferrox-server -m models/Llama-3.2-3B-Instruct-Q4_K_M.gguf -dev metal -ngl all
+ferrox serve -m models/Llama-3.2-3B-Instruct-Q4_K_M.gguf -dev metal -ngl all
 
 # Benchmark against llama-bench, side by side.
 ferrox bench -m models/Llama-3.2-3B-Instruct-Q4_K_M.gguf -p 512 -n 128 -r 3 --compare
 ```
 
-Point any OpenAI client at `http://127.0.0.1:8383/v1` and it works.
+Point any OpenAI client at `http://127.0.0.1:8383/v1` and it works. Anthropic Messages and Responses live on the same server, so `codex` and Anthropic-shaped clients work without a shim.
 
 The engine publishes as `ferrox-inference`, since the name `ferrox` belongs to an unrelated crate. Twelve crates, all live, all sharing one version. Take the facade for the whole stack, or `ferrox-gguf` alone if you only want to read GGUF files.
 
 ```toml
 [dependencies]
-ferrox-inference = "0.9"
+ferrox-inference = "0.13"
 ```
 
 ## Where Ferrox beats llama.cpp
 
-Decode on Metal, same M2 Pro, same GGUF, both engines measured in the same session. Ratio is llama divided by ferrox, so under 1.0 means Ferrox is faster.
+Decode on Metal at v0.12.0, same M2 Pro, same GGUF, both engines measured in one session with a warmup rep and the host load recorded at both ends. Ratio is llama divided by ferrox, so under 1.0 means Ferrox is faster.
 
 | Model | ferrox tok/s | llama.cpp tok/s | Ratio |
 |---|---|---|---|
-| SmolLM2-135M Q8_0 | 321.17 | 214.59 | 0.67x |
-| Qwen2.5-0.5B Q8_0 | 171.63 | 120.03 | 0.70x |
-| Qwen3-0.6B Q8_0 | 163.85 | 115.99 | 0.71x |
-| TinyLlama-1.1B Q8_0 | 128.84 | 109.93 | 0.85x |
-| Gemma-3-1B Q8_0 | 94.63 | 82.91 | 0.88x |
-| Llama-3.2-1B IQ4_XS | 156.56 | 147.58 | 0.94x |
-| Llama-3.2-3B Q4_K_M | 63.89 | 61.21 | 0.96x |
+| Qwen2.5-0.5B Q8_0 | 212.92 | 131.24 | 0.62x |
+| SmolLM2-135M Q8_0 | 332.37 | 219.63 | 0.66x |
+| Qwen3-0.6B Q8_0 | 165.68 | 116.92 | 0.71x |
+| TinyLlama-1.1B Q8_0 | 127.49 | 98.89 | 0.78x |
+| Gemma-3-1B Q8_0 | 96.51 | 83.36 | 0.86x |
+| Phi-4-mini Q4_K_M | 51.97 | 47.98 | 0.92x |
+| Llama-3.2-1B IQ4_XS | 160.14 | 148.44 | 0.93x |
 
-SmolLM2 runs 50 percent faster than llama.cpp. Small models gain most, because the per-token fixed cost dominates and that is where the fused Metal stack pays off.
+Eight of the twelve Metal decode rows are ahead of llama.cpp and the other four sit within 3 percent of it, so no Metal row is red any more. Qwen2.5-0.5B runs 62 percent faster. Small models gain most, because the per-token fixed cost dominates and that is where the fused Metal stack pays off. Prefill closed too: every dense `pp512` row lands between 0.98x and 1.10x.
 
-CPU decode is the other story, and Ferrox loses there. The cause is measured and the fix is written, waiting on a clean benchmark window. Full table either way in [benchmarks/RESULTS.md](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md).
+CPU is the other story, and Ferrox loses across it: all 16 comparable rows land between 1.41x and 5.06x. The cause is measured and the fix is written, waiting on a clean benchmark window. Full table either way in [benchmarks/RESULTS.md](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md), generated from checked-in raw timings rather than typed by hand.
 
 ## New model support
 
@@ -107,7 +112,7 @@ Ferrox used to sniff a model into one of six families and render an approximatio
 
 Every GGUF already carries its chat template as a Jinja string, so Ferrox evaluates that instead. Four real templates lifted from actual checkpoints are pinned in tests with exact expected output.
 
-Half of this shipped. The evaluator exists and passes its tests, and neither the CLI nor the server calls it yet, so the serving path still sniffs. Switching the call sites is the remaining work.
+*Update: this section originally said half of it shipped, with the evaluator written and no call site using it. Both front ends run it now. A checkpoint whose family nobody hand-wrote a renderer for is framed the way it was trained, and `chat_template_kwargs` and `reasoning_effort` pass through to it. The effort is quantized onto the gears that checkpoint actually grades, probed from its own template at load rather than read from a table keyed by model name.*
 
 One consequence I had not thought about: plenty of templates emit the BOS token themselves, and Unsloth strips it from the ones it bakes into a GGUF. Whether a loader double-adds BOS becomes a property of the checkpoint rather than of the code. I measured it across 26 local checkpoints instead of reasoning about it. Zero doubled today, but only because every prepend site had a guard. Remove the guard and 6 of the 26 double.
 
@@ -129,12 +134,10 @@ Model output never becomes markup. I seeded an answer containing a script tag, a
 The parts deciding whether a server behaves with several clients at once:
 
 - Chunked prefill as a resumable state machine, so a long prompt stops stalling replies already in flight.
-- Admission on an integer KV block budget rather than a byte watermark.
-- Cancellation drained at a step boundary, so a cancelled request leaves cleanly instead of being ripped out mid-batch.
-- Stop sequences in two layers, matching single tokens by id before detokenization.
-- A disk tier for the prefix cache, so a warm prefix survives a restart.
 - Admission on an integer KV block budget instead of a byte watermark, with strict FIFO so a large request cannot starve behind small ones.
 - Cancellation drained at a step boundary, so a cancelled row leaves through the same exit every row uses rather than being ripped out mid-batch.
+- Stop sequences in two layers, matching single tokens by id before detokenization.
+- A radix tree over reference-counted KV pages, so two conversations sharing a system prompt share its pages instead of copying them per request.
 - Queue depth capped with a 503 and a Retry-After, so retry storms cannot grow memory without bound.
 
 Models load, unload, and swap at runtime. A request already running finishes against the weights it started with.
@@ -152,11 +155,27 @@ The loader also refuses checkpoints it cannot compute. It records every tensor n
 Ranked, with measurements attached, in [docs/plans](https://github.com/antonellof/ferrox/tree/main/docs/plans):
 
 - CPU decode, the widest remaining gap. The cause is measured: Rayon forks and joins per operation while llama.cpp runs a persistent thread pool. A replacement pool is written and waiting on a clean benchmark window.
-- Folding the server into the CLI as `ferrox serve`, so there is one binary to install. It sits behind an optional feature, because the server drags in 98 crates the CLI does not need, including a C crypto library. A plain merge would make `cargo install` slower for everyone wanting only the CLI.
+- CPU prefill. The blocked attention kernel is 53 percent of non-idle samples on SmolLM2 against roughly 8 percent of the model's FLOPs, because pass one does a dot product per query per KV position with no K reuse across the query block.
 - [dFlash](https://inco.ai/blog/dflash2/) speculative decoding, where a drafter emits a whole block of tokens in one pass instead of one at a time.
 - AMD Strix Halo, where a large unified memory pool suits keeping MoE experts resident.
 
 Every speed number gets measured against llama.cpp on the same host, same file, same backend. If there is no receipt, the table says so. I do not invent numbers.
+
+## Shipped since this was written
+
+Six things landed after this post went up.
+
+**Speculative decoding is lossless at any temperature.** It used to accept a draft token only when the target's argmax matched, which is correct at temperature 0 and quietly wrong above it. Verification now uses the speculative-sampling rejection rule. Drafters plug in through a `Drafter` trait, and acceptance length plus the per-position accept rate are reported, so a drafter that decays toward the end of a block shows up instead of being averaged away.
+
+**Streams survive a dropped connection.** `GET /v1/stream/{request_id}` replays with Last-Event-ID, and there is a polling sibling for proxies that buffer SSE. Two features collided here and only one of them wins: an orphan deadline cancels generation when nobody has read for 30 seconds, and a resumable stream exists precisely so a dropped socket does not cancel. The deadline still detects and logs, and only cancels streams that are not resumable.
+
+**The server prices its KV budget before loading.** Weights plus context times per-token KV against the device budget, with `FERROX_CB_MAX_CONTEXT` and `FERROX_CB_KV_BLOCKS` derived when unset. A request that cannot fit gets a typed 400 naming which ceiling binds, rather than an OOM later.
+
+**One binary does every job.** `cargo install ferrox-cli --features metal` now gives you completions, `ferrox serve`, `ferrox download`, `ferrox bench` and `ferrox verify`. There is no feature flag to discover beyond your GPU. I had kept `serve` behind a flag to spare a completion-only user 98 crates and a C crypto library, and that rule was costing more than it saved: it had already put a false claim in the README, and it was hiding a headline capability where nobody would find it. `ferrox-server` stays published for anyone who wants the server alone.
+
+**Fetching a model needs no Python.** `ferrox download` takes `hf download`'s exact argument shape, so a command copied off a model card runs unchanged. It resolves IPv4 first, because Hugging Face publishes AAAA records that black-hole on some networks, reads `HF_TOKEN` for gated repos, and asks for a byte range so an interrupted download resumes. Bytes land on a `.partial` name and are renamed only after the last one arrives, so the loader never opens a truncated file as a whole GGUF.
+
+**A model too large for the machine is refused before it loads,** naming the checkpoint's size, the memory available, and what expert streaming would cost. I shipped the opposite first: streaming turned itself on when the weights did not fit. Then OLMoE answered "Paris." resident and "amongst amongst, and of" streamed, deterministically, at temperature 0. Auto-enabling was withdrawn the same day. Streaming stays an explicit opt-in until it returns the right tokens, because "your model does not fit" is a bad outcome and "your model answers nonsense" is a much worse one.
 
 ## AI full disclosure
 
@@ -171,5 +190,7 @@ Ferrox does not link against GGML, but exists thanks to the path opened by the l
 Ferrox is Apache-2.0. Try it, and open an issue with the GGUF name, the backend, and your `ferrox bench` output if something runs slow or wrong.
 
 - [github.com/antonellof/ferrox](https://github.com/antonellof/ferrox)
-- [v0.9.1 release](https://github.com/antonellof/ferrox/releases/tag/v0.9.1)
+- [latest release](https://github.com/antonellof/ferrox/releases/latest)
 - [ferrox-inference on crates.io](https://crates.io/crates/ferrox-inference)
+- [benchmarks/RESULTS.md](https://github.com/antonellof/ferrox/blob/main/benchmarks/RESULTS.md)
+- [the first post](/2026/ferrox-rust-gguf-inference-engine/), on why the engine exists
