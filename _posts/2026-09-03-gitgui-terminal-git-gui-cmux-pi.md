@@ -37,19 +37,6 @@ Three steps:
 
 Your terminal never prints UI text. It shows a picture. Locally frames go through POSIX shared memory. On my Mac a 1600×1000 release build rasterizes in about 6 ms.
 
-## Stack placement
-
-Add gitgui as a fourth layer on top of the trio:
-
-| Layer | Tool | Job |
-|-------|------|-----|
-| Workspace | cmux | Panes, notifications, git context in sidebar |
-| Inference | Unsloth, Rondine, or cloud | Model server |
-| Agent | Pi | read, write, edit, bash loop |
-| Git UI | gitgui | Graph, stage, diff, commit in a pane |
-
-Swap Pi for Claude Code. Swap Unsloth for Ollama. Keep cmux. Keep gitgui in the right split.
-
 You get a commit graph with branch lanes, a sidebar for branches/tags/stashes, unstaged and staged lists, per-hunk stage and unstage, fetch/pull/push through your existing `git` CLI, and a JSON-lines socket so Pi or Cursor queries status, selects commits, stages paths, or saves a PNG screenshot.
 
 Keys are single letters and Ctrl combinations terminals do not steal. cmux keeps Cmd+*. Quit with q or Ctrl+C.
