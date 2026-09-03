@@ -4,7 +4,7 @@ title: "gitgui: a real git GUI inside cmux, next to Pi"
 date: 2026-09-03
 categories: [How-To]
 tags: [gitgui, cmux, Pi Agent, Git, Rust, egui, kitty graphics, macOS, Agentic AI]
-excerpt: "I wanted a Sourcetree-class git GUI in the same cmux window as my coding agent. gitgui renders pixels in the terminal with Rust and egui. Pi drives it over a Unix socket."
+excerpt: "I wanted a Sourcetree-class git GUI in the same cmux window as my coding agent. gitgui v0.1.4 renders pixels in the terminal with Rust and egui: footer toolbar, branch switcher, auto refresh, GitHub publish. Pi drives it over a Unix socket."
 render_with_liquid: false
 ---
 
@@ -12,7 +12,7 @@ I wrote [The Local Agent Trio: cmux + Pi + Unsloth Studio](/2026/cmux-pi-unsloth
 
 Pi runs `git status` and `git diff` fine. You still lose the commit graph, the staged file list, inline diffs, and hunk buttons when you review a refactor. I kept Alt-Tabbing to Fork or squinting at `git diff` output. I wanted Sourcetree in the same cmux grid as the agent.
 
-So I built [gitgui](https://github.com/antonellof/gitgui). One Rust binary paints a GUI into your terminal pane with the [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/). Pixels, not a TUI. Graph, sidebar, diff viewer, commit box. cmux, Ghostty, kitty, WezTerm. Over SSH it sends zlib plus base64 frames.
+So I built [gitgui](https://github.com/antonellof/gitgui) a Rust one binary that paints a GUI into your terminal pane with the [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/). Pixels, not a TUI. Graph, sidebar, diff viewer, commit box. cmux, Ghostty, kitty, WezTerm. Over SSH it sends zlib plus base64 frames.
 
 This is my daily layout:
 
@@ -37,9 +37,18 @@ Three steps:
 
 Your terminal never prints UI text. It shows a picture. Locally frames go through POSIX shared memory. On my Mac a 1600×1000 release build rasterizes in about 6 ms.
 
-You get a commit graph with branch lanes, a sidebar for branches/tags/stashes, unstaged and staged lists, per-hunk stage and unstage, fetch/pull/push through your existing `git` CLI, and a JSON-lines socket so Pi or Cursor queries status, selects commits, stages paths, or saves a PNG screenshot.
+You get a commit graph with branch lanes, a sidebar for branches/tags/stashes, unstaged and staged lists, per-hunk stage and unstage, a compact commit box with Commit and Commit & Push, fetch/pull/push through your existing `git` CLI, and a JSON-lines socket so Pi or Cursor queries status, selects commits, stages paths, or saves a PNG screenshot.
 
-Keys are single letters and Ctrl combinations terminals do not steal. cmux keeps Cmd+*. Quit with q or Ctrl+C.
+**v0.1.4** adds the polish I use every day:
+
+- **Footer toolbar**: icon buttons for Fetch, Pull, Push, Refresh, and Quit. No more squinting at key hints in the status bar.
+- **Branch switcher**: click the current branch in the status bar, search local and remote branches, confirm when you have dirty files (stash and switch, discard, or cancel).
+- **Auto refresh**: the worker polls every 2 s. Edits from Pi in the left pane show up on the right without pressing `r`.
+- **Publish to GitHub**: no `origin` remote yet? One modal runs `gh repo create`, adds origin, and pushes. Needs `gh auth login`.
+- **Non-git folders**: open any path. gitgui offers **Initialize git repository** instead of exiting.
+- **Diff wrap**: toggle wrap in the diff viewer. Long lines get the row height they need instead of clipping.
+
+Keys are single letters and Ctrl combinations terminals do not steal. cmux keeps Cmd+*. Quit with q or Ctrl+C, or click Quit in the footer.
 
 ## Install
 
@@ -57,6 +66,12 @@ That one-liner works on public repos. Private repo? Clone with `gh` and run the 
 gh repo clone antonellof/gitgui
 cd gitgui
 bash scripts/install.sh
+```
+
+Pin a release:
+
+```bash
+GITGUI_VERSION=0.1.4 bash scripts/install.sh
 ```
 
 The script pulls a release binary when GitHub has one. Otherwise it builds from source with cargo (Rust 1.95+). Success looks like:
@@ -110,12 +125,14 @@ Drive the GUI from the shell:
 gitgui ls
 gitgui action '{"cmd":"status"}'
 gitgui action '{"cmd":"stage","paths":["src/main.rs"]}'
+gitgui action '{"cmd":"fetch"}'
+gitgui action '{"cmd":"commit_and_push","message":"fix layout"}'
 gitgui action '{"cmd":"screenshot","path":"/tmp/frame.png"}'
 ```
 
 Run `action` from the pane where gitgui lives and it finds the instance via the controlling tty. Writes queue on a background git thread. Poll status until busy hits zero.
 
-A typical session: Pi edits and runs tests on the left. You stage hunks and commit with Ctrl+Enter on the right. Or Pi stages through `gitgui action` and you type the commit message yourself.
+A typical session: Pi edits and runs tests on the left. gitgui auto-refreshes on the right. You stage hunks, click Commit or Commit & Push, or use Ctrl+Enter / Ctrl+Shift+Enter. Switch branches from the status bar when Pi opens a feature branch. Or Pi stages through `gitgui action` and you type the commit message yourself.
 
 ## Inside the binary
 
@@ -125,7 +142,7 @@ stdin reader blocks on terminal bytes and feeds a parser for kitty keys, SGR mou
 
 main loop runs egui, tessellates meshes, rasterizes triangles, encodes kitty graphics.
 
-git worker uses libgit2 for reads and index writes. fetch, pull, and push shell out to `git` so your credential helper and SSH agent stay untouched.
+git worker uses libgit2 for reads and index writes. fetch, pull, and push shell out to `git` so your credential helper and SSH agent stay untouched. A background poll every 2 s refreshes the snapshot when files change on disk, so Pi edits show up without a manual refresh.
 
 The UI reads an immutable RepoSnapshot. The worker swaps in a new snapshot after each command. Rendering never calls git.
 
@@ -137,7 +154,9 @@ Pi touches three files. You want the graph to update, one hunk staged and one le
 
 Before gitgui: `git diff` in the shell for small diffs, Alt-Tab to Fork for a graph, lazygit when you want speed over pixels.
 
-Now: `gitgui --split right .` once per session. Tab between Pi and gitgui. cmux still rings when Pi waits on you. Mouse clicks hit the right widgets. SSH sessions use the direct transport and the same UI.
+Now: `gitgui --split right .` once per session. Tab between Pi and gitgui. Edits from Pi land in the unstaged list within a couple of seconds. Stage one hunk, leave another. Type a message, hit Commit & Push, or fetch first from the footer toolbar. Need a feature branch? Click the branch name, pick from the list, stash if you have WIP. First push to GitHub? Publish from the modal when there is no origin yet.
+
+cmux still rings when Pi waits on you. Mouse clicks hit the right widgets. SSH sessions use the direct transport and the same UI.
 
 ## What v1 skips
 
