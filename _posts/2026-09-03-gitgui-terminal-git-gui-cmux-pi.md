@@ -21,7 +21,7 @@ This is my daily layout:
 Pi on the left edits the repo. gitgui on the right shows branch lanes, unstaged files, and hunk buttons. One workspace. One checkout. 
 cmux + pi + gitgui = 😍
 
-## Why stay inside the terminal?
+## Why stay inside the terminal ?
 
 cmux is a pane grid. You already split shell, Pi, and sometimes a browser. Fork or GitKraken pull you out: different font, different shortcuts, another app fighting for focus.
 
