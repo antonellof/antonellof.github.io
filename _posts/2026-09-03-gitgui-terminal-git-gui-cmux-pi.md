@@ -17,16 +17,16 @@ So I built [gitgui](https://github.com/antonellof/gitgui), one Rust binary that 
 
 *Updated 2026-09-06 for v0.4.0: the UI moved from egui to [iced](https://iced.rs), the panes drag and resize, and merge conflicts get a three-way resolver.*
 
-This is what v0.4.0 looks like on a repo with branches, tags, a stash and a merge stopped on a conflict:
+This is my daily layout: the agent on the left, gitgui v0.4.0 on the right, same cmux workspace, same checkout.
+
+![gitgui in a cmux split next to Claude Code: repository sidebar, commit graph with branch lanes, changes and diff](/assets/images/posts/gitgui-cmux-claude.png)
+
+The agent edits the repo. gitgui shows branch lanes, unstaged files, and hunk buttons. One workspace. One checkout.
+cmux + agent + gitgui = 😍
+
+On a repo with branches, tags, a stash and a merge stopped on a conflict it looks like this:
 
 ![gitgui v0.4.0: repository sidebar, commit graph with branch lanes, changes with a conflict, diff with the conflict banner](/assets/images/posts/gitgui-panes.png)
-
-And my daily layout, Pi on the left, gitgui on the right:
-
-![gitgui in a cmux split beside Pi: commit graph and diff on the right, agent session on the left](/assets/images/posts/gitgui-cmux-pi.png)
-
-Pi edits the repo. gitgui shows branch lanes, unstaged files, and hunk buttons. One workspace. One checkout.
-cmux + pi + gitgui = 😍
 
 ## Why stay inside the terminal?
 
