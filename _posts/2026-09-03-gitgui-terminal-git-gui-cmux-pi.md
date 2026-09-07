@@ -74,8 +74,6 @@ Keys are single letters and Ctrl combinations terminals do not steal. cmux keeps
 
 Not every terminal speaks kitty graphics. Terminal.app, iTerm2, the VS Code terminal, tmux. Since v0.6.0 the same binary notices that and opens a native window instead, still the same iced UI and the same tiny-skia renderer, through winit and softbuffer, no GPU. `gitgui --window` forces it, and `scripts/bundle-macos.sh` wraps it as `gitgui.app` with the logo as its icon, so it also launches from Finder. Started outside a repository it shows the logo and a Change folder button.
 
-![gitgui as a desktop window: the opening screen with the logo, Initialize and Change folder buttons](/assets/images/posts/gitgui-desktop.png)
-
 The terminal split, cmux's file preview and agent screenshots stay terminal-only; keys, panes, the state file and the agent socket work the same.
 
 ## Install
