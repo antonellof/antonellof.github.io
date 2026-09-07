@@ -4,8 +4,8 @@ title: "gitgui: a real git GUI inside cmux, next to Pi"
 date: 2026-09-03
 categories: [How-To]
 tags: [gitgui, cmux, Pi Agent, Git, Rust, iced, kitty graphics, macOS, Agentic AI]
-excerpt: "I wanted a Sourcetree-class git GUI in the same cmux window as my coding agent. gitgui v0.4.0 renders pixels in the terminal with Rust and iced: draggable panes, a three-way conflict resolver, a code editor, history rewriting. Pi drives it over a Unix socket."
-last_modified_at: 2026-09-06
+excerpt: "I wanted a Sourcetree-class git GUI in the same cmux window as my coding agent. gitgui v0.6.0 renders pixels in the terminal with Rust and iced: draggable panes, a three-way conflict resolver, a code editor, history rewriting, and a desktop window wherever the terminal has no graphics. Pi drives it over a Unix socket."
+last_modified_at: 2026-09-07
 render_with_liquid: false
 ---
 
@@ -15,9 +15,9 @@ Pi runs `git status` and `git diff` fine. You still lose the commit graph, the s
 
 So I built [gitgui](https://github.com/antonellof/gitgui), one Rust binary that paints a GUI into your terminal pane with the [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/). Pixels, not a TUI. Graph, sidebar, diff viewer, commit box, editor, conflict resolver. cmux, Ghostty, kitty, WezTerm. Over SSH it sends zlib plus base64 frames.
 
-*Updated 2026-09-06 for v0.4.0: the UI moved from egui to [iced](https://iced.rs), the panes drag and resize, and merge conflicts get a three-way resolver.*
+*Updated 2026-09-07 for v0.6.0: the UI moved from egui to [iced](https://iced.rs), the panes drag, resize and hide, merge conflicts get a three-way resolver, the layout is remembered per repository, and the same binary opens a desktop window in terminals without kitty graphics. Plus a folder switcher, zoom keys and SHA-256 repositories.*
 
-This is my daily layout: the agent on the left, gitgui v0.4.0 on the right, same cmux workspace, same checkout.
+This is my daily layout: the agent on the left, gitgui v0.6.0 on the right, same cmux workspace, same checkout.
 
 ![gitgui in a cmux split next to Claude Code: repository sidebar, commit graph with branch lanes, changes and diff](/assets/images/posts/gitgui-cmux-claude.png)
 
@@ -26,7 +26,7 @@ cmux + agent + gitgui = 😍
 
 On a repo with branches, tags, a stash and a merge stopped on a conflict it looks like this:
 
-![gitgui v0.4.0: repository sidebar, commit graph with branch lanes, changes with a conflict, diff with the conflict banner](/assets/images/posts/gitgui-panes.png)
+![gitgui v0.6.0: repository sidebar, file tree, commit graph with branch lanes, changes with a conflict, diff with the conflict banner](/assets/images/posts/gitgui-panes.png)
 
 ## Why stay inside the terminal?
 
@@ -44,9 +44,9 @@ Three steps:
 
 Your terminal never prints UI text. It shows a picture. Locally frames go through POSIX shared memory. On my Mac a 1600×1000 frame at 2x costs about 6 ms.
 
-## What you get in v0.4.0
+## What you get in v0.6.0
 
-- **Panes you arrange**: repository, commits, changes and diff on an iced pane grid. Drag a title bar to move a pane, drag the gaps to resize, maximize with a click or `1` to `4`.
+- **Panes you arrange**: repository, files, commits, changes and diff on an iced pane grid. Drag a title bar to move a pane, drag the gaps to resize, maximize with the arrows or `1` to `5`, hide a pane with its x and bring it back from the footer. The commit list's columns resize from the header. The layout, hidden panes, collapsed sections and zoom are saved per repository in `.git/gitgui.json` and come back on the next start.
 - **Commit graph** with branch lanes, ref pills, filter by summary, author or hash.
 - **Staging by file, hunk or line**: click, Shift+click or drag lines in the diff, then Stage or Discard just those. Search in the diff, adjust context, ignore whitespace, wrap.
 - **Three-way conflict resolver**: ours, result, theirs side by side with per-conflict take-left, take-right, keep-both, drop buttons, accept-all, edit the result, apply and mark resolved. Conflicted files also get a banner with whole-file ours / theirs.
@@ -61,6 +61,8 @@ Your terminal never prints UI text. It shows a picture. Locally frames go throug
 ![Built-in editor with syntax colors next to the repository sidebar](/assets/images/posts/gitgui-editor.png)
 
 - **Merge and rebase state** in the footer with continue / abort / skip.
+- **Change folder** from the footer or `Ctrl+O`: a folder dialog with git repositories marked, so one gitgui pane follows you across projects. Zoom with `Ctrl+=` / `Ctrl+-`.
+- **SHA-256 repositories** (`git init --object-format=sha256`) open, diff and commit like any other; libgit2 is built with its SHA-256 support.
 - **Branch switcher**, publish to GitHub through `gh`, initialize a non-git folder, auto refresh every 2 s when the repo changes.
 - **Agent socket**: `gitgui ls`, `gitgui action '{"cmd":"status"}'`, so Pi or Cursor query status, select commits, stage paths, fetch, push, or save a PNG screenshot.
 
@@ -68,9 +70,17 @@ Your terminal never prints UI text. It shows a picture. Locally frames go throug
 
 Keys are single letters and Ctrl combinations terminals do not steal. cmux keeps Cmd+*. `?` lists them all. Quit with q or Ctrl+C, or click Quit in the footer.
 
+## And outside cmux: a desktop window
+
+Not every terminal speaks kitty graphics. Terminal.app, iTerm2, the VS Code terminal, tmux. Since v0.6.0 the same binary notices that and opens a native window instead, still the same iced UI and the same tiny-skia renderer, through winit and softbuffer, no GPU. `gitgui --window` forces it, and `scripts/bundle-macos.sh` wraps it as `gitgui.app` with the logo as its icon, so it also launches from Finder. Started outside a repository it shows the logo and a Change folder button.
+
+![gitgui as a desktop window: the opening screen with the logo, Initialize and Change folder buttons](/assets/images/posts/gitgui-desktop.png)
+
+The terminal split, cmux's file preview and agent screenshots stay terminal-only; keys, panes, the state file and the agent socket work the same.
+
 ## Install
 
-You need macOS or Linux and a kitty-graphics terminal.
+You need macOS or Linux. In a kitty-graphics terminal gitgui draws into the pane; anywhere else it opens a desktop window.
 
 Quick start:
 
@@ -89,7 +99,7 @@ bash scripts/install.sh
 Pin a release:
 
 ```bash
-GITGUI_VERSION=0.4.0 bash scripts/install.sh
+GITGUI_VERSION=0.6.0 bash scripts/install.sh
 ```
 
 The script pulls a release binary when GitHub has one. Otherwise it builds from source with cargo (Rust 1.95+). Success looks like:
@@ -164,7 +174,7 @@ git worker uses libgit2 for reads and index writes. fetch, pull, and push shell 
 
 The UI reads an immutable RepoSnapshot. The worker swaps in a new snapshot after each command. Rendering never calls git.
 
-iced 0.14 (`iced_core`, `iced_runtime`, `iced_widget`, `iced_renderer` on tiny-skia, no winit), git2, libc for termios and shm, serde for the agent API. No Electron. No GPU backend. No tokio. Spec and protocol bytes live in [docs/SPEC.md](https://github.com/antonellof/gitgui/blob/main/docs/SPEC.md) and [docs/PROTOCOLS.md](https://github.com/antonellof/gitgui/blob/main/docs/PROTOCOLS.md).
+iced 0.14 (`iced_core`, `iced_runtime`, `iced_widget`, `iced_renderer` on tiny-skia; the `iced` umbrella crate with winit only for the window mode), git2 with libgit2's SHA-256 support, libc for termios and shm, serde for the agent API. No Electron. No GPU backend. No tokio. Spec and protocol bytes live in [docs/SPEC.md](https://github.com/antonellof/gitgui/blob/main/docs/SPEC.md) and [docs/PROTOCOLS.md](https://github.com/antonellof/gitgui/blob/main/docs/PROTOCOLS.md).
 
 ## One refactor, start to finish
 
@@ -178,7 +188,7 @@ cmux still rings when Pi waits on you. Mouse clicks hit the right widgets. SSH s
 
 ## What it still skips
 
-cmux and Ghostty are the main targets. kitty works. tmux and Zellij need graphics passthrough and fail today.
+cmux and Ghostty are the main targets. kitty works. tmux and Zellij do not pass kitty graphics through; there, and in any terminal without them, gitgui opens its desktop window instead of drawing into the pane.
 
 Ghostty on macOS has no stable split-from-child API. `gitgui --split` prints a keybind hint and runs in the current pane when needed.
 
