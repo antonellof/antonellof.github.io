@@ -124,6 +124,8 @@ ROCm support (v0.8) extends the power story to AMD. `cgn-power` reads `rocm-smi`
 
 **v0.8** shipped a standalone fleet dashboard (`dashboard/`): zero dependencies, polls any CORS-enabled `/metrics` endpoint, in-browser ring buffers and canvas charts for req/s, tokens/s, latency p50/p95, TTFT p95, queue depth, power vs cap, KV used %, J/token, plus a live node table with GPU identity. Deep-linkable via `?endpoint=` and `?interval=`. A stdlib-only mock fleet generator simulates a 16-node mixed GPU fleet for demos.
 
+![Cognitora cluster dashboard: KPI strip for nodes, requests/s, tokens/s, latency, TTFT, power, and prefix digests, with live charts and a heterogeneous node table](/assets/images/posts/cognitora-cluster-dashboard.png)
+
 The router mirrors its node registry into `cgn_cluster_node_*` gauges every 5s and observes `cgn_router_chat_ttft_seconds` on the first streamed token. `/metrics` answers CORS preflight so browser apps scrape any Cognitora listener directly.
 
 If you read the original post and cared about sub-500 µs routing decisions, you also need to see whether those decisions help on your traffic. The dashboard fills the gap without standing up Prometheus + Grafana on day one.
