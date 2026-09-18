@@ -43,20 +43,36 @@ Against PrismML's fork, on the real 27B checkpoint:
 
 For scale, the "wrong" line is 1e-2 and the fork's own build-to-build spread on this format is up to 4.6e-4. These are the same distribution to within float accumulation order. The tokenizer matches too: 21 test strings across both special-token modes, 1198 tokens, identical.
 
-## Speed
+## Speed, and where it goes
 
 On an M2 Pro (16 GB), `ferrox bench` against the fork's `llama-bench`, same file, same GPU, same session:
 
 | | Ferrox v0.23.0 | PrismML llama.cpp |
 |---|---|---|
 | Prefill, 128 tokens | 32 tok/s | 67 tok/s |
-| Decode | 7.3 tok/s | 11.5 tok/s |
+| Decode | 7.2 tok/s | 11.5 tok/s |
 
-Not parity yet. The first build did 2.9 and 2.4, and the path from there was a sequence of measured steps, each one a profile and a fix: the matvec redesign above, fusing paired projections into one GPU submission, running the delta-net recurrence across all cores with reductions the compiler can vectorise, a Hadamard butterfly that runs one row per core instead of all rows on one, and finally moving the rotation itself onto the GPU so the whole feed-forward block (gate, SwiGLU, down) fits in one command buffer instead of two.
+The first build did 2.9 and 2.4. The path from there was a sequence of measured steps, each one a profile and a fix: the matvec redesign above, fusing paired projections into one GPU submission, running the delta-net recurrence across all cores with reductions the compiler can vectorise, a Hadamard butterfly that does one row per core instead of all rows on one, and finally moving the rotation itself onto the GPU so the whole feed-forward block (gate, SwiGLU, down) fits in one command buffer instead of two.
 
-Two of the things I tried are worth as much as the one that worked, because they say where the floor is. Putting the rotation on the GPU bought 9% of decode and **cost 6% of prefill**: the host version is already spread across six cores, while the kernel has to serialise into the same command buffer as the matmul it feeds, so prefill keeps the host transform and the code says why. And replacing the blocking wait on each command buffer with a short spin, aimed squarely at the 0.166 ms of wake-up latency I had just measured, produced **3.7 tok/s against 7.1**: polling the buffer's status takes the very core the host work needs.
+I am still 1.6x behind on decode, and I would rather publish the reason than the excuse. Every Metal submission Ferrox makes is now timed, including the fused feed-forward block, which used to commit its command buffer without noting it and therefore charged its own GPU time to the host. With that closed, one decode token accounts for itself:
 
-What is left is structural and measured rather than guessed. A token submits about 120 Metal command buffers, each costing 0.166 ms of latency beyond its own GPU time, which is 24 ms of a 137 ms token; the fork encodes one graph for the whole token. Closing that means running a whole layer (norms, residual, the recurrent state update) on the device, which is a much bigger piece of work than anything above.
+| Per token | |
+|---|---|
+| Command buffers submitted | 159 |
+| GPU, summed over them | 66 ms |
+| Submission overhead beyond that GPU time | 34 ms |
+| Host compute (delta-net recurrence, norms, sampling) | 41 ms |
+| Wall clock | 141 ms |
+
+The fork's token is 87 ms. It is not winning on kernel speed: 66 ms of GPU for 5.5 GB of weights is about 84 GB/s of a 200 GB/s machine, and the trit decode is arithmetic-bound rather than bandwidth-bound in both engines. It is winning because it encodes the whole token as one graph and never comes back. Ferrox returns to the host roughly three times per layer, and each return costs 0.166 ms of wake-up latency beyond the work plus whatever the CPU then does.
+
+So the remaining gap is one piece of work, not a list: run a whole layer without leaving the device, which means the recurrent state update, the norms and the residual adds become kernels. That is a bigger change than everything above put together, and it is the next thing.
+
+Two experiments are worth as much as the fixes, because they say where the floor is not.
+
+Putting the rotation on the GPU bought 9% of decode and **cost 6% of prefill**. The host version is already spread across six cores, while the kernel has to serialise into the same command buffer as the matmul it feeds, so a prefill batch keeps the host transform and the code says so at the branch.
+
+Replacing the blocking wait on each command buffer with a short spin, aimed squarely at that 0.166 ms, produced **3.7 tok/s against 7.1**: polling the buffer's status through the Objective-C runtime takes the very core the host work needs. Unretained command-buffer references, aimed at the same number, measured 7.00 against 7.1, which is nothing for an `unsafe` whose invariant somebody has to keep. Neither is in the release; both are recorded next to the code that would otherwise invite them again.
 
 7 tokens per second is a usable speed for a 27B model on a laptop. It is the speed at which you read, not the speed at which you skim.
 
