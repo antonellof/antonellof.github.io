@@ -1,0 +1,198 @@
+---
+layout: post
+title: "A 27B model in 5.5 GB: Bonsai ternary on Ferrox, locally"
+date: 2026-09-18
+categories: [Projects]
+tags: [Rust, AI, LLM, Local Inference, Ternary, Apple Silicon, Metal, Coding Agents, OpenAI API, Pi Agent]
+excerpt: "Ferrox v0.23.0 runs PrismML's Ternary-Bonsai-2-27B, a 1.75-bit model that fits in 5.5 GB, at the same logits as PrismML's own llama.cpp fork. How to download it, run it, put it behind the Studio UI, and wire it into a coding agent."
+---
+
+<img src="/assets/images/ferrox/ferrox-logo.webp" alt="Ferrox" width="380" />
+
+[Ferrox](https://github.com/antonellof/ferrox) is a pure-Rust inference engine for GGUF models, with a llama.cpp-shaped CLI, an OpenAI-compatible server, and a small web UI called Studio. The [first post](/2026/ferrox-rust-gguf-inference-engine/) covers the design and the [second](/2026/ferrox-metal-parity-llama-cpp/) covers catching llama.cpp on Metal.
+
+This one is about a single model, because it is the first model Ferrox runs that stock llama.cpp cannot: [Ternary-Bonsai-2-27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) from PrismML. 27 billion parameters, 1.75 bits each, 5.5 GB on disk, and it runs on a 16 GB laptop with room to spare. Ferrox v0.23.0, released today, adds the quantization format it ships in and the trick that makes that format work, verified against PrismML's reference at the logit level.
+
+## What Bonsai is
+
+Bonsai 2 is a Qwen3.5-27B graph (gated delta-net layers with full attention every fourth layer) whose weights have been quantized to **three values**: -1, 0, +1, with one 16-bit scale per 128 weights. PrismML packs five trits into a byte in base 3, which is where 1.75 bits per weight comes from. They call the GGUF type `PTQ1_0`.
+
+Ternary quantization alone would wreck a 27B model. What makes it work is a rotation: before quantizing, every weight matrix is multiplied by a Walsh-Hadamard matrix (a 1024-wide butterfly with a learned sign pattern), which spreads outliers across all the channels so that a three-level grid can hold them. The rotation is folded into the stored weights, so at inference time the engine has to apply the same rotation to the activations before every matmul, and undo it on the embedding table after each lookup. If you skip that, you get a model that loads fine and produces garbage.
+
+Stock llama.cpp knows neither the format nor the fold. PrismML publish a [fork](https://github.com/prism-ml/llama.cpp) that does, and that fork is the reference every number below is measured against.
+
+## What Ferrox does with it
+
+Three pieces, all in v0.23.0:
+
+- **The `PTQ1_0` codec** (`ferrox-quant`): unpacking, dequantizing and dot products for the base-3 layout, sharing one implementation with llama.cpp's own `TQ1_0` since the two differ only in block geometry.
+- **Metal kernels** (`ferrox-metal`): a matvec for decode and a simdgroup GEMM for prefill. The matvec is PrismML's design ported: eight GPU lanes share one 128-weight block and each lane owns whole bytes, so a block is read from memory exactly once, and the trit is peeled out on the float pipeline as `floor(3^(n+1) u) - 3 floor(3^n u)` with `u = byte / 256`, which is exact in fp32 and never touches the integer units. My first version gave each lane a whole block and decoded with integer ops. It was correct and it ran at 2.4 tokens per second.
+- **The Hadamard fold** (`ferrox-core`, `ferrox-models`): read from the `prism.hadamard.*` metadata the checkpoint carries, applied to the activation before every launch of a folded weight, restored on the embedding row. Anything outside the exact configuration that has been verified is refused by name, which is how Ferrox treats every partially-understood model: stop, do not guess.
+
+## Accuracy: measured, not eyeballed
+
+Ferrox has a `parity` command that feeds identical token ids to a compiled libllama and to Ferrox, then compares the full first-token logit distributions. It reports KL divergence, total variation, and the top-10 overlap, with the "wrong" line calibrated from how far two builds of llama.cpp itself disagree on the same file. Greedy text is not enough for this: two near-tied logits swapping looks like a bug and is not one, and a real bug can hide behind a plausible sentence.
+
+Against PrismML's fork, on the real 27B checkpoint:
+
+| Path | KL(reference, Ferrox) | Top-10 overlap |
+|---|---|---|
+| CPU | 2.1e-5 nats | 10 / 10 |
+| Metal, decode kernel | 2.3e-5 nats | 10 / 10 |
+| Metal, prefill GEMM (256-token prompt) | 2.2e-6 nats | 10 / 10 |
+
+For scale, the "wrong" line is 1e-2 and the fork's own build-to-build spread on this format is up to 4.6e-4. These are the same distribution to within float accumulation order. The tokenizer matches too: 21 test strings across both special-token modes, 1198 tokens, identical.
+
+## Speed
+
+On an M2 Pro (16 GB), `ferrox bench` against the fork's `llama-bench`, same file, same GPU, same session:
+
+| | Ferrox v0.23.0 | PrismML llama.cpp |
+|---|---|---|
+| Prefill, 128 tokens | 32 tok/s | 67 tok/s |
+| Decode | 7.3 tok/s | 11.5 tok/s |
+
+Not parity yet. The first build did 2.9 and 2.4, and the path from there was a sequence of measured steps, each one a profile and a fix: the matvec redesign above, fusing paired projections into one GPU submission, running the delta-net recurrence across all cores with reductions the compiler can vectorise, a Hadamard butterfly that runs one row per core instead of all rows on one, and finally moving the rotation itself onto the GPU so the whole feed-forward block (gate, SwiGLU, down) fits in one command buffer instead of two.
+
+Two of the things I tried are worth as much as the one that worked, because they say where the floor is. Putting the rotation on the GPU bought 9% of decode and **cost 6% of prefill**: the host version is already spread across six cores, while the kernel has to serialise into the same command buffer as the matmul it feeds, so prefill keeps the host transform and the code says why. And replacing the blocking wait on each command buffer with a short spin, aimed squarely at the 0.166 ms of wake-up latency I had just measured, produced **3.7 tok/s against 7.1**: polling the buffer's status takes the very core the host work needs.
+
+What is left is structural and measured rather than guessed. A token submits about 120 Metal command buffers, each costing 0.166 ms of latency beyond its own GPU time, which is 24 ms of a 137 ms token; the fork encodes one graph for the whole token. Closing that means running a whole layer (norms, residual, the recurrent state update) on the device, which is a much bigger piece of work than anything above.
+
+7 tokens per second is a usable speed for a 27B model on a laptop. It is the speed at which you read, not the speed at which you skim.
+
+The fixes were not all Bonsai's. Chasing why the first Metal run printed padding tokens turned up a kind table that had been copied into four places, and three of the copies were missing `Q5_0`. Every `Q5_0` model had been running its prefill as N separate matvecs, and skipping the fused feed-forward kernel entirely, for two weeks while the capability table claimed otherwise. That is fixed in the same release, and each copy is now derived from the one table with a test holding it there.
+
+Two more turned up once the server was actually serving this model rather than answering `curl`. A chat request that omits `max_tokens` gets a 32768-token default, and the private decode loop clamped that to the remaining context while the batching path, which is the default one, refused it instead, so a server started `-c 16384` answered `hi` with a 400 naming a number the caller never sent. And the per-request context ceiling was derived independently of the KV block ledger, so `-c 65536` on a machine whose ledger held 25344 positions advertised a context it could never admit. Both are one shared function now.
+
+## Download and run
+
+You need Rust and, on a Mac, nothing else. The only build flag is your GPU.
+
+```bash
+cargo install ferrox-cli --features metal      # or --features cuda
+
+# Same argument shape as `hf download`, no Python.
+ferrox download prism-ml/Ternary-Bonsai-2-27B-gguf \
+  Ternary-Bonsai-2-27B-PTQ1_0.gguf --local-dir models
+
+# Raw completion, greedy, no chat wrapping.
+ferrox -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
+  -p "The capital of France is" -n 32 --temp 0 --no-cnv -ngl 99
+
+# Chat. Ferrox applies the checkpoint's own template (Qwen3.5's, thinking on).
+ferrox -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
+  -p "Explain ternary quantization in three sentences" -n 400 -ngl 99
+
+# Check it against the reference yourself, if you have the fork built.
+ferrox parity -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf --dumper target/llama_logits_prism
+```
+
+The download is 5.5 GB. The first load maps the file and is instant; the first token pays for paging it in.
+
+## The server and Studio
+
+```bash
+ferrox serve -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
+  -ngl 99 --alias bonsai-2-27b --port 8383
+```
+
+That gives you an OpenAI-compatible API on `http://127.0.0.1:8383/v1`: chat completions, completions, embeddings and models, with Anthropic Messages and Responses on the same port. `--alias` is what the model is called in `/v1/models` and in every response; without it you get the checkpoint's `general.name`, which for this file is the unhelpful string `Hf`.
+
+Note what is missing from that command: `-c`. The model advertises a 262k context, my laptop can hold about 25k of its KV cache, and with no `-c` the server prices the checkpoint against the device and derives both the per-request ceiling and the block budget from the same arithmetic. Pass a `-c` larger than the machine can hold and you get the ceiling you asked for, narrowed to what the ledger can actually admit, with a log line saying so.
+
+Studio is a separate app that talks to that API over HTTP (`ferrox-server` serves JSON, not HTML). From a checkout:
+
+```bash
+cd ui && npm install && npm run dev   # http://localhost:5173/ui/
+```
+
+It reads `FERROX_BACKEND` if your server is somewhere other than `127.0.0.1:8383`.
+
+Studio's Models page lists every GGUF in your models directory, with its quant, architecture, context and size, and lets you load one without restarting the server. Bonsai shows up as `PTQ1_0 / qwen35`:
+
+![Ferrox Studio Models page in dark mode: the inventory filtered to Ternary-Bonsai-2-27B-PTQ1_0, showing quant PTQ1_0, arch qwen35, context 262,144, 26.9B parameters, 5.54 GB on disk, state loaded](/assets/images/ferrox/bonsai-models.png)
+
+And a chat. Here is a question going in and the model streaming its answer back, at the real speed:
+
+![Ferrox Studio streaming an answer from Ternary-Bonsai-2-27B: the prompt is typed, sent, and the model's chain of thought fills in live](/assets/images/ferrox/bonsai-studio.gif)
+
+The finished turn carries the numbers for that request under the answer: time to first token, prefill and decode rates:
+
+![Ferrox Studio chat with Ternary-Bonsai-2-27B: a Rust function answered with a doc comment and examples, and the stat line underneath reading TTFT 3.70 s, prefill 98 tok at 26.6 tok/s, decode 1,495 tok at 4.3 tok/s](/assets/images/ferrox/bonsai-chat.png)
+
+That decode figure is lower than the 7.3 in the table because it is a 1,495-token answer: the KV cache grows as it goes, and the benchmark number is a 32-token run from an empty cache. Both are real; they measure different things.
+
+The model thinks before it answers by default (Qwen3.5's template enables it). Studio folds the thinking into a collapsible block; over the API it arrives in `reasoning_content`, and `reasoning_effort: "low"` or `enable_thinking: false` in the request turns it down or off.
+
+## Using it from a coding agent
+
+Any tool that speaks the OpenAI API can use the server. Here is [Pi](https://github.com/earendil-works/pi-coding-agent), the minimal coding agent I covered in [an earlier post](/2026/running-glm-5-2-locally-rondine-pi/): four tools (`read`, `write`, `edit`, `bash`), one loop, and a provider file.
+
+Install it:
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+```
+
+Confirm the server answers first, with the model id you gave `--alias`:
+
+```bash
+curl http://127.0.0.1:8383/v1/models
+curl http://127.0.0.1:8383/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{"model":"bonsai-2-27b","messages":[{"role":"user","content":"Say hi in five words."}],"max_tokens":64}'
+```
+
+Then add Ferrox as a provider in `~/.pi/agent/models.json`:
+
+```json
+{
+  "providers": {
+    "ferrox": {
+      "baseUrl": "http://127.0.0.1:8383/v1",
+      "api": "openai-completions",
+      "apiKey": "ferrox",
+      "models": [
+        {
+          "id": "bonsai-2-27b",
+          "name": "Bonsai 2 27B ternary, local via Ferrox",
+          "contextWindow": 16384
+        }
+      ]
+    }
+  }
+}
+```
+
+Ferrox does not validate the key, but Pi wants a non-empty one. `contextWindow` should be no larger than the context the server reports it can admit (its startup log prints the derived ceiling). Then:
+
+```bash
+cd ~/Projects/some-repository
+pi
+```
+
+Inside Pi, `/model` and pick the Ferrox entry. Start with something small and checkable, a single function with a test, and watch the Activity page in Studio while it works: every request the agent makes shows up there with its prompt size and timing, which is the fastest way to see whether your context is growing faster than you expected.
+
+Two practical notes for agent use. First, keep `max_tokens` generous, because a thinking model spends part of the budget before it writes any code; if the agent's answers come back truncated, that is why. Second, 7 tokens per second means a 400-token edit takes a minute. That is fine for the review-each-step way I use these tools and frustrating for anything fire-and-forget. A 4B or 8B Bonsai exists on the same Hugging Face account for the second case.
+
+## What I learned building it
+
+The format took an afternoon. The correctness took a day, and none of that day was the new code.
+
+The first Metal run produced `[PAD248319]` forever at a very respectable 5.9 tokens per second. The kernel was right; a helper that decides how many rows each threadgroup owns carried its own list of quantization kinds, the new kind was not on it, and so it dispatched the new kernel with the wrong geometry and every row but the first group's came back zero. Two more copies of the same list were found the same way, one of them wrong for a format Ferrox had shipped for weeks. This is the bug shape that has cost the project most, and it is the one thing I would tell anyone building an engine: two structures that must agree about one thing, with nothing enforcing it, will disagree. Derive one from the other, or write the test that holds them together, before the second copy exists.
+
+The other lesson was about what "supported" means. Bonsai loaded on the first try and printed " Paris." on the first try, on the CPU. If I had stopped there, the Metal path would have shipped wrong. `ferrox parity` against the reference, on all three execution paths, is what turned "looks right" into a number, and the number is what I would want from any engine claiming to run a model I care about.
+
+## Links
+
+- [Ferrox on GitHub](https://github.com/antonellof/ferrox), [v0.23.0 release](https://github.com/antonellof/ferrox/releases/tag/v0.23.0)
+- [Ternary-Bonsai-2-27B GGUF](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) and [PrismML's llama.cpp fork](https://github.com/prism-ml/llama.cpp)
+- [Pi coding agent](https://github.com/earendil-works/pi-coding-agent)
+
+## AI full disclosure
+
+This software is developed with strong assistance from Cursor, Grok 4.5, GPT 5.6, and Claude Fable 5, with humans leading the ideas, testing, and debugging. We say this openly because it shaped how the project was built. If you are not happy with AI-developed code, this software is not for you. The acknowledgement below is equally important: this would not exist without [llama.cpp](https://github.com/ggerganov/llama.cpp) and GGML, largely written by hand.
+
+## Acknowledgements
+
+Ferrox does not link against GGML, but exists thanks to the path opened by the llama.cpp project and the kernels, quantization formats, GGUF ecosystem, and hard-won engineering knowledge developed there. The `PTQ1_0` Metal kernel in this release is a port of the design in PrismML's fork, and the format, the fold and the model are theirs. We keep the GGML authors' copyright notice in [docs/THIRD_PARTY_NOTICES.md](https://github.com/antonellof/ferrox/blob/main/docs/THIRD_PARTY_NOTICES.md).
