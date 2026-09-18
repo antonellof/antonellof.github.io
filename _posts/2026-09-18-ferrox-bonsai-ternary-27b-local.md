@@ -1,33 +1,40 @@
 ---
 layout: post
-title: "A 27B model in 5.5 GB: Bonsai ternary on Ferrox, locally"
+title: "A 27B model in 6 GB: Bonsai ternary on Ferrox, locally"
 date: 2026-09-18
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, Ternary, Apple Silicon, Metal, Coding Agents, OpenAI API, Pi Agent]
-excerpt: "Ferrox v0.23.0 runs PrismML's Ternary-Bonsai-2-27B, a 1.75-bit model that fits in 5.5 GB, at the same logits as PrismML's own llama.cpp fork. How to download it, run it, put it behind the Studio UI, and wire it into a coding agent."
+excerpt: "Ferrox v0.23.1 runs PrismML's Ternary-Bonsai-2-27B, a 1.75-bit-per-weight model that fits in 5.95 GB, at the same logits as PrismML's own llama.cpp fork. How to download it, run it, put it behind the Studio UI, and wire it into a coding agent."
 ---
 
 <img src="/assets/images/ferrox/ferrox-logo.webp" alt="Ferrox" width="380" />
 
 [Ferrox](https://github.com/antonellof/ferrox) is a pure-Rust inference engine for GGUF models, with a llama.cpp-shaped CLI, an OpenAI-compatible server, and a small web UI called Studio. The [first post](/2026/ferrox-rust-gguf-inference-engine/) covers the design and the [second](/2026/ferrox-metal-parity-llama-cpp/) covers catching llama.cpp on Metal.
 
-This one is about a single model, because it is the first model Ferrox runs that stock llama.cpp cannot: [Ternary-Bonsai-2-27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) from PrismML. 27 billion parameters, 1.75 bits each, 5.5 GB on disk, and it runs on a 16 GB laptop with room to spare. Ferrox v0.23.0, released today, adds the quantization format it ships in and the trick that makes that format work, verified against PrismML's reference at the logit level.
+This one is about a single model, [Ternary-Bonsai-2-27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) from PrismML, and it is the first checkpoint I have run on Ferrox that upstream llama.cpp will not open at all. Handed the same file, a build of `ggml-org/llama.cpp` from this week says:
+
+```text
+gguf_init_from_reader: tensor 'output.weight' has invalid ggml type 143. should be in [0, 43)
+llama_model_load: error loading model: failed to load model
+```
+
+27 billion parameters at 1.75 bits each, 5.95 GB on disk, running on a 16 GB laptop with room to spare. Ferrox v0.23.1, released today, adds the quantization format it ships in and the transform that makes that format work, verified against PrismML's own reference at the logit level.
 
 ## What Bonsai is
 
-Bonsai 2 is a Qwen3.5-27B graph (gated delta-net layers with full attention every fourth layer) whose weights have been quantized to **three values**: -1, 0, +1, with one 16-bit scale per 128 weights. PrismML packs five trits into a byte in base 3, which is where 1.75 bits per weight comes from. They call the GGUF type `PTQ1_0`.
+Bonsai 2 is derived from Qwen3.8-27B with the architecture unchanged, and its GGUF declares llama.cpp's `qwen35` architecture: a hybrid backbone that is about three quarters linear attention, with full attention every fourth layer (the file says `full_attention_interval = 4`). What PrismML changed is the weights. Every language weight is one of **three values**, -1, 0 or +1, with one 16-bit scale per group of 128. Five trits pack into a byte in base 3, which is where 1.75 bits per weight comes from, and that packing is the GGUF type `PTQ1_0`. A second packing, `PQ2_0`, gives each trit its own 2-bit slot at 2.13 bits per weight; Ferrox recognises it and refuses it, because it has no kernel for it.
 
-Ternary quantization alone would wreck a 27B model. What makes it work is a rotation: before quantizing, every weight matrix is multiplied by a Walsh-Hadamard matrix (a 1024-wide butterfly with a learned sign pattern), which spreads outliers across all the channels so that a three-level grid can hold them. The rotation is folded into the stored weights, so at inference time the engine has to apply the same rotation to the activations before every matmul, and undo it on the embedding table after each lookup. If you skip that, you get a model that loads fine and produces garbage.
+Ternary quantization alone would wreck a 27B model. What makes it work is a rotation: before quantizing, every weight matrix is transformed blockwise by a Walsh-Hadamard matrix with fixed +1/-1 signs, 1024 wide, which spreads outliers across the channels of a block so that a three-level grid can hold them. The rotation is folded into the stored weights, so it costs no bits and no extra weight traffic, and the runtime has to apply the matching transform to the activations before every matmul and undo it on the embedding table after each lookup. The file declares the rotation as metadata precisely so that a runtime either applies it or refuses the file. If you apply it wrong, the model loads and talks nonsense.
 
-Stock llama.cpp knows neither the format nor the fold. PrismML publish a [fork](https://github.com/prism-ml/llama.cpp) that does, and that fork is the reference every number below is measured against.
+Upstream llama.cpp knows neither the packing nor the rotation, which is what that `invalid ggml type 143` is. PrismML publish a [fork](https://github.com/PrismML-Eng/llama.cpp) that does, and that fork is the reference every number below is measured against.
 
 ## What Ferrox does with it
 
-Three pieces, all in v0.23.0:
+Three pieces, all in this release:
 
 - **The `PTQ1_0` codec** (`ferrox-quant`): unpacking, dequantizing and dot products for the base-3 layout, sharing one implementation with llama.cpp's own `TQ1_0` since the two differ only in block geometry.
 - **Metal kernels** (`ferrox-metal`): a matvec for decode and a simdgroup GEMM for prefill. The matvec is PrismML's design ported: eight GPU lanes share one 128-weight block and each lane owns whole bytes, so a block is read from memory exactly once, and the trit is peeled out on the float pipeline as `floor(3^(n+1) u) - 3 floor(3^n u)` with `u = byte / 256`, which is exact in fp32 and never touches the integer units. My first version gave each lane a whole block and decoded with integer ops. It was correct and it ran at 2.4 tokens per second.
-- **The Hadamard fold** (`ferrox-core`, `ferrox-models`): read from the `prism.hadamard.*` metadata the checkpoint carries, applied to the activation before every launch of a folded weight, restored on the embedding row. Anything outside the exact configuration that has been verified is refused by name, which is how Ferrox treats every partially-understood model: stop, do not guess.
+- **The Hadamard fold** (`ferrox-core`, `ferrox-models`): read from the `prism.hadamard.*` metadata the checkpoint carries (block 1024, an explicit sign per input channel, the tensor names it applies to), applied to the activation before every launch of a folded weight, and undone on the embedding row after lookup. Anything outside the exact configuration that has been verified is refused by name, which is how Ferrox treats every partially-understood model: stop, do not guess.
 
 ## Accuracy: measured, not eyeballed
 
@@ -47,7 +54,7 @@ For scale, the "wrong" line is 1e-2 and the fork's own build-to-build spread on 
 
 On an M2 Pro (16 GB), `ferrox bench` against the fork's `llama-bench`, same file, same GPU, same session:
 
-| | Ferrox v0.23.0 | PrismML llama.cpp |
+| | Ferrox v0.23.1 | PrismML llama.cpp |
 |---|---|---|
 | Prefill, 128 tokens | 32 tok/s | 67 tok/s |
 | Decode | 7.2 tok/s | 11.5 tok/s |
@@ -64,7 +71,7 @@ I am still 1.6x behind on decode, and I would rather publish the reason than the
 | Host compute (delta-net recurrence, norms, sampling) | 41 ms |
 | Wall clock | 141 ms |
 
-The fork's token is 87 ms. It is not winning on kernel speed: 66 ms of GPU for 5.5 GB of weights is about 84 GB/s of a 200 GB/s machine, and the trit decode is arithmetic-bound rather than bandwidth-bound in both engines. It is winning because it encodes the whole token as one graph and never comes back. Ferrox returns to the host roughly three times per layer, and each return costs 0.166 ms of wake-up latency beyond the work plus whatever the CPU then does.
+The fork's token is 87 ms. It is not winning on kernel speed: 66 ms of GPU for 5.95 GB of weights is about 90 GB/s of a 200 GB/s machine, and the trit decode is arithmetic-bound rather than bandwidth-bound in both engines. It is winning because it encodes the whole token as one graph and never comes back. Ferrox returns to the host roughly three times per layer, and each return costs 0.166 ms of wake-up latency beyond the work plus whatever the CPU then does.
 
 So the remaining gap is one piece of work, not a list: run a whole layer without leaving the device, which means the recurrent state update, the norms and the residual adds become kernels. That is a bigger change than everything above put together, and it is the next thing.
 
@@ -95,7 +102,7 @@ ferrox download prism-ml/Ternary-Bonsai-2-27B-gguf \
 ferrox -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
   -p "The capital of France is" -n 32 --temp 0 --no-cnv -ngl 99
 
-# Chat. Ferrox applies the checkpoint's own template (Qwen3.5's, thinking on).
+# Chat. Ferrox applies the checkpoint's own template (thinking on by default).
 ferrox -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
   -p "Explain ternary quantization in three sentences" -n 400 -ngl 99
 
@@ -103,7 +110,7 @@ ferrox -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
 ferrox parity -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf --dumper target/llama_logits_prism
 ```
 
-The download is 5.5 GB. The first load maps the file and is instant; the first token pays for paging it in.
+The download is 5.95 GB. The first load maps the file and is instant; the first token pays for paging it in.
 
 ## The server and Studio
 
@@ -138,11 +145,13 @@ The finished turn carries the numbers for that request under the answer: time to
 
 That decode figure is lower than the 7.3 in the table because it is a 1,495-token answer: the KV cache grows as it goes, and the benchmark number is a 32-token run from an empty cache. Both are real; they measure different things.
 
-The model thinks before it answers by default (Qwen3.5's template enables it). Studio folds the thinking into a collapsible block; over the API it arrives in `reasoning_content`, and `reasoning_effort: "low"` or `enable_thinking: false` in the request turns it down or off.
+The model thinks before it answers by default, at the `xhigh` effort its own metadata names. Studio folds the thinking into a collapsible block; over the API it arrives in `reasoning_content`, separated from the answer. `reasoning_effort: "medium"` shortens it and `"none"` (or `enable_thinking: false`) turns it off. Do not reach for `"low"` here: PrismML's model card says this checkpoint ignores it and thinks as hard as at `xhigh`.
+
+That separation is itself a fix in this release. Ferrox used to pick the reasoning parser from the checkpoint's name, and this file's `general.name` is the string `Hf`, so nothing matched and the entire chain of thought arrived as the answer. The chat template is probed at load now, the way its effort vocabulary already was.
 
 ## Using it from a coding agent
 
-Any tool that speaks the OpenAI API can use the server. Here is [Pi](https://github.com/earendil-works/pi-coding-agent), the minimal coding agent I covered in [an earlier post](/2026/running-glm-5-2-locally-rondine-pi/): four tools (`read`, `write`, `edit`, `bash`), one loop, and a provider file.
+Any tool that speaks the OpenAI API can use the server. Here is [Pi](https://github.com/earendil-works/pi), the minimal coding agent I covered in [an earlier post](/2026/running-glm-5-2-locally-rondine-pi/): four tools (`read`, `write`, `edit`, `bash`), one loop, and a provider file.
 
 Install it:
 
@@ -201,9 +210,9 @@ The other lesson was about what "supported" means. Bonsai loaded on the first tr
 
 ## Links
 
-- [Ferrox on GitHub](https://github.com/antonellof/ferrox), [v0.23.0 release](https://github.com/antonellof/ferrox/releases/tag/v0.23.0)
-- [Ternary-Bonsai-2-27B GGUF](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) and [PrismML's llama.cpp fork](https://github.com/prism-ml/llama.cpp)
-- [Pi coding agent](https://github.com/earendil-works/pi-coding-agent)
+- [Ferrox on GitHub](https://github.com/antonellof/ferrox), [v0.23.1 release](https://github.com/antonellof/ferrox/releases/tag/v0.23.1)
+- [Ternary-Bonsai-2-27B GGUF](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) and [PrismML's llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp)
+- [Pi coding agent](https://github.com/earendil-works/pi)
 
 ## AI full disclosure
 
