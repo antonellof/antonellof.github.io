@@ -1,9 +1,9 @@
 ---
 layout: post
-title: "A 27B model in 6 GB: Bonsai ternary on Ferrox, locally"
+title: "From 54 GB to 6: a 27B reasoning model on an M2 Mac"
 date: 2026-09-18
 categories: [Projects]
-tags: [Rust, AI, LLM, Local Inference, Ternary, Apple Silicon, Metal, Coding Agents, OpenAI API, Pi Agent]
+tags: [Rust, AI, LLM, Local Inference, Ternary, Apple Silicon, M2, MacBook, Metal, Coding Agents, OpenAI API, Pi Agent]
 excerpt: "Ferrox now runs PrismML's Ternary-Bonsai-2-27B: a 27B model at 1.75 bits per weight, 5.95 GB on disk instead of ~54 GB, with PrismML reporting 98.2% of FP16 intelligence retained. How to download it, run it, put it behind the Studio UI, and point a coding agent at it."
 ---
 
