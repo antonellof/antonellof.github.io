@@ -31,7 +31,7 @@ This blog is where I share my experiences and learnings in software architecture
 ![Qdrant](https://img.shields.io/badge/Qdrant-DC244C?style=flat&logo=qdrant&logoColor=white) ![HNSW](https://img.shields.io/badge/HNSW-222222?style=flat) ![FAISS](https://img.shields.io/badge/FAISS-0081FB?style=flat&logo=meta&logoColor=white) ![cuVS](https://img.shields.io/badge/cuVS-76B900?style=flat&logo=nvidia&logoColor=white)
 
 **LLM inference engines:**
-![vLLM](https://img.shields.io/badge/vLLM-394260?style=flat) ![SGLang](https://img.shields.io/badge/SGLang-000000?style=flat) ![llama.cpp](https://img.shields.io/badge/llama.cpp-222222?style=flat) ![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-76B900?style=flat&logo=nvidia&logoColor=white) ![MLX](https://img.shields.io/badge/MLX-000000?style=flat&logo=apple&logoColor=white) ![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat&logo=ollama&logoColor=white) ![Ferrox](https://img.shields.io/badge/Ferrox-b4400b?style=flat&logo=rust&logoColor=white)
+![vLLM](https://img.shields.io/badge/vLLM-394260?style=flat) ![SGLang](https://img.shields.io/badge/SGLang-000000?style=flat) ![llama.cpp](https://img.shields.io/badge/llama.cpp-222222?style=flat) ![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-76B900?style=flat&logo=nvidia&logoColor=white) ![MLX](https://img.shields.io/badge/MLX-000000?style=flat&logo=apple&logoColor=white) ![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat&logo=ollama&logoColor=white) ![Frink](https://img.shields.io/badge/Frink-b4400b?style=flat&logo=rust&logoColor=white)
 
 ## Services Used
 
@@ -46,7 +46,7 @@ This blog is where I share my experiences and learnings in software architecture
 
 ## Notable Projects
 
-- **[Ferrox](https://github.com/antonellof/ferrox)** [![Crates.io](https://img.shields.io/crates/v/ferrox-inference.svg)](https://crates.io/crates/ferrox-inference) - Pure-Rust GGUF inference engine: quantized CPU, Apple Metal and CUDA kernels, mixture-of-experts support, and an OpenAI-compatible server. Every speed claim is benchmarked head-to-head against llama.cpp on the same host and file. Write-ups: *[a Rust GGUF engine, measured against llama.cpp](/2026/ferrox-rust-gguf-inference-engine/)* and *[Ferrox on Metal, at parity with llama.cpp and past it](/2026/ferrox-metal-parity-llama-cpp/)*.
+- **[Frink](https://github.com/antonellof/frink)** [![Crates.io](https://img.shields.io/crates/v/frink-inference.svg)](https://crates.io/crates/frink-inference) - Pure-Rust GGUF inference engine: quantized CPU, Apple Metal and CUDA kernels, mixture-of-experts support, and an OpenAI-compatible server. Every speed claim is benchmarked head-to-head against llama.cpp on the same host and file. Write-ups: *[a Rust GGUF engine, measured against llama.cpp](/2026/frink-rust-gguf-inference-engine/)* and *[Frink on Metal, at parity with llama.cpp and past it](/2026/frink-metal-parity-llama-cpp/)*.
 
 - **[MARS](https://github.com/antonellof/MARS)** - GPU-resident multimodal memory substrate for real-time embodied AI. Episode-scoped retrieval as a CUDA kernel-level primitive: 197 µs p99 at N=1M with perfect cross-modal `hit@15`, 33× faster than FAISS-Flat-GPU on the same hardware. Companion paper: *[MARS: Episode-Scoped GPU Retrieval for Real-Time Embodied AI](https://www.fratepietro.com/papers/MARS/main.pdf)*.
 
