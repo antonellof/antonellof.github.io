@@ -4,7 +4,7 @@ title: "A 27B model in 6 GB: Bonsai ternary on Ferrox, locally"
 date: 2026-09-18
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, Ternary, Apple Silicon, Metal, Coding Agents, OpenAI API, Pi Agent]
-excerpt: "Ferrox now runs PrismML's Ternary-Bonsai-2-27B: a 27B model at 1.75 bits per weight, 5.95 GB on disk, on a 16 GB laptop. How to download it, run it, put it behind the Studio UI, and point a coding agent at it."
+excerpt: "Ferrox now runs PrismML's Ternary-Bonsai-2-27B: a 27B model at 1.75 bits per weight, 5.95 GB on disk instead of ~54 GB, with PrismML reporting 98.2% of FP16 intelligence retained. How to download it, run it, put it behind the Studio UI, and point a coding agent at it."
 ---
 
 <img src="/assets/images/ferrox/ferrox-logo.webp" alt="Ferrox" width="380" />
@@ -19,7 +19,13 @@ Every language weight is one of three values, -1, 0 or +1, with one 16-bit scale
 
 Ternary alone would wreck a 27B model. What makes it work is a rotation: each weight matrix is transformed blockwise by a Walsh-Hadamard matrix with fixed signs, which spreads outliers across a block so a three-level grid can hold them. The rotation is folded into the stored weights, so the runtime has to apply the matching transform to the activations before every matmul, and undo it on the embedding table after each lookup. Get that wrong and the model loads and talks nonsense.
 
-Ferrox v0.23.1 adds the packing (a CPU dot, a Metal matvec, a Metal GEMM) and the fold, read from the checkpoint's own `prism.hadamard.*` metadata. Anything outside the configuration that has been verified is refused by name rather than guessed at.
+It is ternary end to end — embeddings, attention projections, MLP projections and the LM head, a true 1.72 bits per weight, with no high-precision escape hatch behind a low-bit label. The vision tower ships separately as a Q8_0 `mmproj` pack. PrismML publish two packings: `PTQ1_0` packs trits densely (1.75 bits/weight, 5.95 GB) and `PQ2_0` gives each trit its own 2-bit slot (2.13 bits/weight, 7.21 GB). Either way the packed weights are consumed directly and never expanded back to FP16.
+
+The numbers PrismML report for it are the reason it is interesting rather than a curiosity: **98.2% of FP16 intelligence retained**, 84.78 average across 14 thinking-mode benchmarks, against 72.59 for a conventional IQ2_XXS build at more than half again the footprint — and within 0.4 points of UD-Q4_K_XL at three times the size. Reasoning survives well below 4 bits where conventional low-bit formats collapse: math within half a point of full precision (96.57), coding level with the baseline (89.42), agentic tool calling at 74.92. The backbone is the Qwen3.8-27B hybrid attention (roughly 75% linear), which is what keeps its 262K context practical on-device. There is an MLX build too, `Ternary-Bonsai-2-27B-mlx-2bit`, for native Apple Silicon.
+
+From ~54 GB in FP16 to ~5.9 GB. That is the whole pitch: 27B-class reasoning on a laptop or one GPU.
+
+Ferrox v0.24.0 adds the packing (a CPU dot, a Metal matvec, a Metal GEMM) and the fold, read from the checkpoint's own `prism.hadamard.*` metadata. Anything outside the configuration that has been verified is refused by name rather than guessed at.
 
 PrismML's [llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp) is the reference implementation for the format, so that is what Ferrox is checked against. `ferrox parity` feeds both engines identical token ids and compares the full first-token logit distribution: a KL divergence of 2e-5 on CPU, 2e-5 on the Metal decode kernel and 2e-6 through the Metal prefill GEMM, with the same ten top tokens in the same order. The tokenizer matches on 1198 tokens across 21 test strings.
 
@@ -39,7 +45,7 @@ ferrox -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
   -p "Explain ternary quantization in three sentences" -n 400 -ngl 99
 ```
 
-On an M2 Pro it decodes at about 7.7 tokens per second: reading speed rather than skimming speed, with most of the machine's memory still free.
+On an M2 Pro it decodes at about 10.5 tokens per second and prefills at about 43: reading speed rather than skimming speed, with most of the machine's memory still free. That decode figure was 7.1 when the format first landed; most of the difference is a recurrent layer now running as a single Metal submission instead of three.
 
 ## The server and Studio
 
@@ -111,7 +117,7 @@ Ferrox does not validate the key, but Pi wants a non-empty one. Then `cd` into a
 
 ## Links
 
-- [Ferrox on GitHub](https://github.com/antonellof/ferrox), [v0.23.1 release](https://github.com/antonellof/ferrox/releases/tag/v0.23.1)
+- [Ferrox on GitHub](https://github.com/antonellof/ferrox), [v0.24.0 release](https://github.com/antonellof/ferrox/releases/tag/v0.24.0)
 - [Ternary-Bonsai-2-27B GGUF](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) and [PrismML's llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp)
 - [Pi coding agent](https://github.com/earendil-works/pi)
 
