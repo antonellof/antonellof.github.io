@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "From 54 GB to 6: a 27B reasoning model on an M2 Mac"
+title: "Bonsai: a 27B reasoning model on a 16 GB M2 Mac, with Ferrox"
 date: 2026-09-18
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, Ternary, Apple Silicon, M2, MacBook, Metal, Coding Agents, OpenAI API, Pi Agent]
@@ -31,11 +31,16 @@ PrismML's [llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp) is the refe
 
 ## Download and run
 
-You need Rust and, on a Mac, nothing else. The only build flag is your GPU.
+One line, no toolchain:
 
 ```bash
-cargo install ferrox-cli --features metal      # or --features cuda
+curl -fsSL https://raw.githubusercontent.com/antonellof/ferrox/main/scripts/install.sh | bash
+```
 
+That drops `ferrox` and `ferrox-server` into `~/.local/bin`. The macOS
+build is arm64 with Metal already on; Linux x86_64 is CPU. Then:
+
+```bash
 # Same argument shape as `hf download`, no Python.
 ferrox download prism-ml/Ternary-Bonsai-2-27B-gguf \
   Ternary-Bonsai-2-27B-PTQ1_0.gguf --local-dir models
@@ -44,6 +49,9 @@ ferrox download prism-ml/Ternary-Bonsai-2-27B-gguf \
 ferrox -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
   -p "Explain ternary quantization in three sentences" -n 400 -ngl 99
 ```
+
+If you would rather build it, `cargo install ferrox-cli --features metal`
+(or `--features cuda`) gives you the same binary.
 
 On an M2 Pro it decodes at about 10.5 tokens per second and prefills at about 43: reading speed rather than skimming speed, with most of the machine's memory still free. That decode figure was 7.1 when the format first landed; most of the difference is a recurrent layer now running as a single Metal submission instead of three.
 
