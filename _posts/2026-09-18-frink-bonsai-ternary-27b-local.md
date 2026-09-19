@@ -1,15 +1,15 @@
 ---
 layout: post
-title: "Bonsai: a 27B reasoning model on a 16 GB M2 Mac, with Ferrox"
+title: "Bonsai: a 27B reasoning model on a 16 GB M2 Mac, with Frink"
 date: 2026-09-18
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, Ternary, Apple Silicon, M2, MacBook, Metal, Coding Agents, OpenAI API, Pi Agent]
-excerpt: "Ferrox now runs PrismML's Ternary-Bonsai-2-27B: a 27B model at 1.75 bits per weight, 5.95 GB on disk instead of ~54 GB, with PrismML reporting 98.2% of FP16 intelligence retained. How to download it, run it, put it behind the Studio UI, and point a coding agent at it."
+excerpt: "Frink now runs PrismML's Ternary-Bonsai-2-27B: a 27B model at 1.75 bits per weight, 5.95 GB on disk instead of ~54 GB, with PrismML reporting 98.2% of FP16 intelligence retained. How to download it, run it, put it behind the Studio UI, and point a coding agent at it."
 ---
 
-<img src="/assets/images/ferrox/ferrox-logo.webp" alt="Ferrox" width="380" />
+<img src="/assets/images/frink/frink-logo.webp" alt="Frink" width="380" />
 
-[Ferrox](https://github.com/antonellof/ferrox) is a pure-Rust inference engine for GGUF models, with a llama.cpp-shaped CLI, an OpenAI-compatible server, and a small web UI called Studio. The [first post](/2026/ferrox-rust-gguf-inference-engine/) covers the design, the [second](/2026/ferrox-metal-parity-llama-cpp/) the Metal backend.
+[Frink](https://github.com/antonellof/frink) is a pure-Rust inference engine for GGUF models, with a llama.cpp-shaped CLI, an OpenAI-compatible server, and a small web UI called Studio. The [first post](/2026/frink-rust-gguf-inference-engine/) covers the design, the [second](/2026/frink-metal-parity-llama-cpp/) the Metal backend.
 
 This one is about a single model: [Ternary-Bonsai-2-27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) from PrismML. 27 billion parameters at 1.75 bits each, 5.95 GB on disk, running on a 16 GB laptop with room to spare.
 
@@ -25,32 +25,32 @@ The numbers PrismML report for it are the reason it is interesting rather than a
 
 From ~54 GB in FP16 to ~5.9 GB. That is the whole pitch: 27B-class reasoning on a laptop or one GPU.
 
-Ferrox v0.24.0 adds the packing (a CPU dot, a Metal matvec, a Metal GEMM) and the fold, read from the checkpoint's own `prism.hadamard.*` metadata. Anything outside the configuration that has been verified is refused by name rather than guessed at.
+Frink v0.24.0 adds the packing (a CPU dot, a Metal matvec, a Metal GEMM) and the fold, read from the checkpoint's own `prism.hadamard.*` metadata. Anything outside the configuration that has been verified is refused by name rather than guessed at.
 
-PrismML's [llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp) is the reference implementation for the format, so that is what Ferrox is checked against. `ferrox parity` feeds both engines identical token ids and compares the full first-token logit distribution: a KL divergence of 2e-5 on CPU, 2e-5 on the Metal decode kernel and 2e-6 through the Metal prefill GEMM, with the same ten top tokens in the same order. The tokenizer matches on 1198 tokens across 21 test strings.
+PrismML's [llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp) is the reference implementation for the format, so that is what Frink is checked against. `frink parity` feeds both engines identical token ids and compares the full first-token logit distribution: a KL divergence of 2e-5 on CPU, 2e-5 on the Metal decode kernel and 2e-6 through the Metal prefill GEMM, with the same ten top tokens in the same order. The tokenizer matches on 1198 tokens across 21 test strings.
 
 ## Download and run
 
 One line, no toolchain:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/antonellof/ferrox/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/antonellof/frink/main/scripts/install.sh | bash
 ```
 
-That drops `ferrox` and `ferrox-server` into `~/.local/bin`. The macOS
+That drops `frink` and `frink-server` into `~/.local/bin`. The macOS
 build is arm64 with Metal already on; Linux x86_64 is CPU. Then:
 
 ```bash
 # Same argument shape as `hf download`, no Python.
-ferrox download prism-ml/Ternary-Bonsai-2-27B-gguf \
+frink download prism-ml/Ternary-Bonsai-2-27B-gguf \
   Ternary-Bonsai-2-27B-PTQ1_0.gguf --local-dir models
 
-# Chat. Ferrox applies the checkpoint's own template.
-ferrox -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
+# Chat. Frink applies the checkpoint's own template.
+frink -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
   -p "Explain ternary quantization in three sentences" -n 400 -ngl 99
 ```
 
-If you would rather build it, `cargo install ferrox-cli --features metal`
+If you would rather build it, `cargo install frink-cli --features metal`
 (or `--features cuda`) gives you the same binary.
 
 On an M2 Pro it decodes at about 10.5 tokens per second and prefills at about 43: reading speed rather than skimming speed, with most of the machine's memory still free. That decode figure was 7.1 when the format first landed; most of the difference is a recurrent layer now running as a single Metal submission instead of three.
@@ -58,7 +58,7 @@ On an M2 Pro it decodes at about 10.5 tokens per second and prefills at about 43
 ## The server and Studio
 
 ```bash
-ferrox serve -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
+frink serve -m models/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
   -ngl 99 --alias bonsai-2-27b --port 8383
 ```
 
@@ -74,15 +74,15 @@ cd ui && npm install && npm run dev   # http://localhost:5173/ui/
 
 Its Models page lists every GGUF in your models directory with its quant, architecture, context and size, and loads one without restarting the server:
 
-![Ferrox Studio Models page in dark mode: the inventory filtered to Ternary-Bonsai-2-27B-PTQ1_0, showing quant PTQ1_0, arch qwen35, context 262,144, 26.9B parameters, 5.54 GB on disk, state loaded](/assets/images/ferrox/bonsai-models.png)
+![Frink Studio Models page in dark mode: the inventory filtered to Ternary-Bonsai-2-27B-PTQ1_0, showing quant PTQ1_0, arch qwen35, context 262,144, 26.9B parameters, 5.54 GB on disk, state loaded](/assets/images/frink/bonsai-models.png)
 
 And a chat, at the real speed:
 
-![Ferrox Studio streaming an answer from Ternary-Bonsai-2-27B: the prompt is typed, sent, and the model's chain of thought fills in live](/assets/images/ferrox/bonsai-studio.gif)
+![Frink Studio streaming an answer from Ternary-Bonsai-2-27B: the prompt is typed, sent, and the model's chain of thought fills in live](/assets/images/frink/bonsai-studio.gif)
 
 The finished turn carries its own numbers underneath: time to first token, prefill and decode rates.
 
-![Ferrox Studio chat with Ternary-Bonsai-2-27B: a Rust function answered with a doc comment and examples, and a stat line underneath](/assets/images/ferrox/bonsai-chat.png)
+![Frink Studio chat with Ternary-Bonsai-2-27B: a Rust function answered with a doc comment and examples, and a stat line underneath](/assets/images/frink/bonsai-chat.png)
 
 The model thinks before it answers. Studio folds the thinking into a collapsible block; over the API it arrives in `reasoning_content`, separated from the answer, and `reasoning_effort: "medium"` shortens it while `"none"` turns it off.
 
@@ -100,19 +100,19 @@ Check the server answers first, using the id you gave `--alias`:
 curl http://127.0.0.1:8383/v1/models
 ```
 
-Then add Ferrox as a provider in `~/.pi/agent/models.json`:
+Then add Frink as a provider in `~/.pi/agent/models.json`:
 
 ```json
 {
   "providers": {
-    "ferrox": {
+    "frink": {
       "baseUrl": "http://127.0.0.1:8383/v1",
       "api": "openai-completions",
-      "apiKey": "ferrox",
+      "apiKey": "frink",
       "models": [
         {
           "id": "bonsai-2-27b",
-          "name": "Bonsai 2 27B ternary, local via Ferrox",
+          "name": "Bonsai 2 27B ternary, local via Frink",
           "contextWindow": 16384
         }
       ]
@@ -121,11 +121,11 @@ Then add Ferrox as a provider in `~/.pi/agent/models.json`:
 }
 ```
 
-Ferrox does not validate the key, but Pi wants a non-empty one. Then `cd` into a repository, run `pi`, pick the Ferrox entry with `/model`, and start with something small and checkable. Two practical notes: keep `max_tokens` generous, because a thinking model spends part of the budget before it writes any code, and a few tokens per second suits reviewing each step rather than firing and forgetting.
+Frink does not validate the key, but Pi wants a non-empty one. Then `cd` into a repository, run `pi`, pick the Frink entry with `/model`, and start with something small and checkable. Two practical notes: keep `max_tokens` generous, because a thinking model spends part of the budget before it writes any code, and a few tokens per second suits reviewing each step rather than firing and forgetting.
 
 ## Links
 
-- [Ferrox on GitHub](https://github.com/antonellof/ferrox), [v0.24.0 release](https://github.com/antonellof/ferrox/releases/tag/v0.24.0)
+- [Frink on GitHub](https://github.com/antonellof/frink), [v0.24.0 release](https://github.com/antonellof/frink/releases/tag/v0.24.0)
 - [Ternary-Bonsai-2-27B GGUF](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) and [PrismML's llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp)
 - [Pi coding agent](https://github.com/earendil-works/pi)
 
@@ -135,4 +135,4 @@ This software is developed with strong assistance from Cursor, Grok 4.5, GPT 5.6
 
 ## Acknowledgements
 
-Ferrox does not link against GGML, but exists thanks to the path opened by the llama.cpp project and the kernels, quantization formats, GGUF ecosystem, and hard-won engineering knowledge developed there. The ternary format, the Hadamard fold and the model itself are PrismML's, and the Metal kernel in this release is a port of the design in their fork. We keep the GGML authors' copyright notice in [docs/THIRD_PARTY_NOTICES.md](https://github.com/antonellof/ferrox/blob/main/docs/THIRD_PARTY_NOTICES.md).
+Frink does not link against GGML, but exists thanks to the path opened by the llama.cpp project and the kernels, quantization formats, GGUF ecosystem, and hard-won engineering knowledge developed there. The ternary format, the Hadamard fold and the model itself are PrismML's, and the Metal kernel in this release is a port of the design in their fork. We keep the GGML authors' copyright notice in [docs/THIRD_PARTY_NOTICES.md](https://github.com/antonellof/frink/blob/main/docs/THIRD_PARTY_NOTICES.md).
