@@ -18,3 +18,10 @@
   flex: 1;
   min-width: 0; // Allows text to wrap properly
 }
+
+// Frink posts lead with the square badge. Center it in the column.
+.post-content img[src="/assets/images/frink/frink-logo.webp"] {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
