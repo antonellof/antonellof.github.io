@@ -4,7 +4,7 @@ title: "Laya vs Dijkstra: can a typed-decision model find its way out of a maze?
 date: 2026-09-24
 categories: [Projects]
 tags: [AI, MLX, Apple Silicon, Laya, Local Inference, Algorithms, Dijkstra, Pathfinding, Python]
-excerpt: "I put Laya, a small typed-decision model running locally on MLX, against Dijkstra on seeded weighted mazes, caves and room maps. Dijkstra sees the whole map and wins, as it should. Laya only sees four neighbours and still reaches the goal every time, beating a random-choice baseline on 5 of 6 maps. Code, GIF, replay page and every number are in the repo."
+excerpt: "I put Laya, a small typed-decision model running locally on MLX, against Dijkstra on seeded weighted mazes, caves and room maps. Dijkstra sees the whole map and wins, as it should. Laya only sees four neighbours and still reaches the goal every time, beating a random-choice baseline on 5 of 6 maps. Code, GIF, an interactive replay and every number are in the post and the repo."
 ---
 
 ![Laya MLX vs Dijkstra on three seeded maps: Dijkstra's expansion wave on the left, Laya walking the map on the right](/assets/images/posts/laya-vs-dijkstra.gif)
@@ -72,6 +72,24 @@ It's the same idea as the Snake demo's safety layer: hard rules keep the agent a
 This frame shows a small trade-off. Up and left are fast floor but move away from the goal: 0.777 each. Right is slow mud but moves closer: 0.826. Laya took the mud. Down is closed by the memory rule, so it was never asked.
 
 There are two clocks. **Work steps** plays one Dijkstra node or one Laya move per tick. **Real time** replays measured wall time, and there Dijkstra is done before the first frame. The GIF at the top stretches each side to finish together, and the tiles under each board show the real compute time.
+
+Here is the actual replay from the run behind this post. Pick a map, press play, switch clocks, drag the timeline:
+
+<iframe id="laya-replay" src="/assets/demos/laya-vs-dijkstra/replay.html" title="Interactive replay: Laya vs Dijkstra on six seeded maps" loading="lazy" style="display: block; width: min(1240px, calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); height: 1400px; border: 1px solid rgba(128, 128, 128, 0.25); border-radius: 12px;"></iframe>
+<script>
+  (function () {
+    var frame = document.getElementById("laya-replay");
+    function fit() {
+      try { frame.style.height = frame.contentDocument.documentElement.scrollHeight + 2 + "px"; } catch (e) {}
+    }
+    frame.addEventListener("load", function () {
+      fit();
+      try { new ResizeObserver(fit).observe(frame.contentDocument.body); } catch (e) {}
+    });
+  })();
+</script>
+
+<p style="font-size: 0.9em;"><a href="/assets/demos/laya-vs-dijkstra/replay.html" target="_blank" rel="noopener">Open the replay full screen</a>. It's one self-contained HTML file with the recorded data embedded; nothing runs the model in your browser.</p>
 
 ## Results
 
