@@ -10,21 +10,16 @@ excerpt: "Frink is a pure-Rust GGUF inference engine with one goal: be what you 
 
 <img src="/assets/images/frink/frink-logo.webp" alt="Frink Inference: pure-Rust GGUF inference engine" width="380" />
 
-The project I have been writing about since August as **Ferrox** is now **[Frink](https://github.com/antonellof/frink)**. Same code, same history, new name, and a new logo: the mad scientist holding a GGUF chip in one hand and a flask in the other, with an MoE router on the screen behind him. It is a fair picture of the project. Half of it is careful measurement, the other half is enthusiasm.
+[Frink](https://github.com/antonellof/frink) is a pure-Rust inference engine for GGUF models. It loads the same checkpoints as llama.cpp and runs them on CPU, Apple Metal or CUDA, dense and mixture-of-experts alike. There are no llama.cpp bindings and no ggml wrapper: the loader, the quantized kernels, attention and expert routing are all written in Rust.
 
-This post covers the rename, what changed in the twenty-five releases since the [Bonsai post](/2026/frink-bonsai-ternary-27b-local/), the goal the project is now organised around, and where Frink already beats llama.cpp. The [first post](/2026/frink-rust-gguf-inference-engine/) covers the design and the [second](/2026/frink-metal-parity-llama-cpp/) the Metal backend. Old `/ferrox-*` links redirect.
+What you get:
 
-## The rename
+- **A CLI with llama.cpp's flags**: `-m`, `-p`, `-n`, `-ngl`, `-c`, `-hf`, `--jinja`. A command copied from a model card just works.
+- **An OpenAI-compatible server**, with Anthropic Messages and the Responses API on the same port, continuous batching and a prefix cache over paged KV.
+- **Studio**, a small web UI that talks to the server: chat, the model inventory and live request activity.
+- **The tools, in the same binary**: `download`, `bench`, `quantize`, `imatrix`, `gguf-split`, `verify` and `parity`, which checks Frink against llama.cpp on your own machine.
 
-The rename landed in v0.26.0. It touched 722 files and about 11,000 occurrences. Every crate is `frink-*` now, the binaries are `frink` and `frink-server`, the environment variables are `FRINK_*`, and the repository is `antonellof/frink`. Directories and fixtures moved with `git mv`, so `git log --follow` still works through the change.
-
-A few things deliberately stayed or changed in ways a rename normally would not:
-
-- **The `ferrox-*` crates stay on crates.io at 0.25.0.** The `frink-*` crates start at the same version instead of pretending to continue them. The name `frink` on crates.io belongs to an unrelated project, so the facade crate is **`frink-inference`**.
-- **Some test architecture strings still say `ferroxtest`.** They are values inside committed binary GGUF fixtures. GGUF strings are length-prefixed, so renaming them means regenerating the fixtures and their goldens. It is data, not branding.
-- **The KV-block hash domain changed on purpose.** It went from `ferrox-kv-block-v1` to `frink-kv-block-v1`, so KV blocks written by an older build can no longer be found, rather than being read back under a name that no longer describes them.
-
-The new mark is in the README. Studio, the web UI, keeps its own monochrome SVG logo, because a full-colour raster wordmark cannot also serve as a 16px favicon in both themes. In the terminal there is a small ASCII `frink` wordmark. The first version used half-block characters to match llama.cpp's banner, and at terminal aspect ratio it read as `FFIUHK`. Now it is thin box-drawing in its own style, the one place where looking like llama.cpp would be the wrong goal.
+This post covers the goal Frink is built around, what changed in the last twenty-five releases (v0.24 to v0.49), and where it already beats llama.cpp. The [first post](/2026/frink-rust-gguf-inference-engine/) covers the design, the [second](/2026/frink-metal-parity-llama-cpp/) the Metal backend, and the [Bonsai post](/2026/frink-bonsai-ternary-27b-local/) running a 27B ternary model on a 16 GB Mac.
 
 ## The goal, stated once
 
