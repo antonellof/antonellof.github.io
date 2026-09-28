@@ -5,7 +5,7 @@ date: 2026-09-28
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, llama.cpp, GGUF, Metal, CUDA, MoE, OpenAI API]
 image: /assets/images/frink/frink-social.png
-excerpt: "What changed in Frink from v0.24 to v0.49: 100 architectures checked against libllama's own logits, a serving stack with vLLM's sampling surface, and a list of where llama.cpp is still ahead."
+excerpt: "Frink is a pure-Rust GGUF inference engine with one goal: be what you run instead of llama.cpp. Same models, same commands, same or better speed. 100 architectures verified against llama.cpp's own logits, faster decode on Apple Silicon, and an OpenAI-compatible server in a single 23 MB binary."
 ---
 
 <img src="/assets/images/frink/frink-logo.webp" alt="Frink Inference: pure-Rust GGUF inference engine" width="380" />
