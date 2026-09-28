@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Ferrox is now Frink: the Rust alternative to llama.cpp, one month in"
+title: "Frink: the Rust alternative to llama.cpp, one month in"
 date: 2026-09-28
 categories: [Projects]
 tags: [Rust, AI, LLM, Local Inference, llama.cpp, GGUF, Metal, CUDA, MoE, OpenAI API]
