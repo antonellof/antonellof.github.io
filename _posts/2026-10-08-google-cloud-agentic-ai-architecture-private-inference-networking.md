@@ -23,20 +23,29 @@ Google's [component guide](https://docs.cloud.google.com/architecture/choose-age
 
 The [design pattern guide](https://docs.cloud.google.com/architecture/choose-design-pattern-agentic-ai-system) opens with advice I wish more teams followed: if the task is predictable or fits in one model call, you may not need an agent at all. Summarizing, translating, and classifying feedback are examples it gives. If you do need one, start with a **single agent** and refine its prompt and tools before adding architecture.
 
-When a single agent degrades (more tools, more latency, wrong tool choices), the guide lays out a menu. I find it easiest to remember by asking whether the *workflow* or the *model* decides the next step:
+When a single agent degrades (more tools, more latency, wrong tool choices), the guide lays out a menu. I find it easiest to remember by asking who decides the next step: your code, the model, a person, or your own logic.
 
-| Who decides the flow | Pattern | Use it for |
-|---|---|---|
-| Fixed code | **Sequential** | Repeatable pipelines: extract → clean → load |
-| Fixed code | **Parallel** | Independent sub-tasks fanned out, then synthesized |
-| Fixed code | **Loop / iterative refinement** | Repeat until a quality bar or iteration cap |
-| Fixed code | **Review and critique** | Generator plus critic, e.g. a security-auditor agent |
-| The model | **Coordinator** | Dynamic routing: order status vs. return vs. refund |
-| The model | **Hierarchical decomposition** | Research, planning, synthesis over several levels |
-| The model | **Swarm** | Debate between agents, no central supervisor |
-| The model | **ReAct** | Thought → action → observation until done |
-| Human | **Human-in-the-loop** | Approvals, high-stakes or compliance steps |
-| You | **Custom logic** | Mixed patterns with conditional branches |
+**Fixed code decides the flow**
+
+- **Sequential:** repeatable pipelines, such as extract → clean → load
+- **Parallel:** independent sub-tasks fanned out, then synthesized
+- **Loop / iterative refinement:** repeat until a quality bar or an iteration cap
+- **Review and critique:** a generator plus a critic, for example a security-auditor agent
+
+**The model decides the flow**
+
+- **Coordinator:** dynamic routing, such as order status vs. return vs. refund
+- **Hierarchical decomposition:** research, planning and synthesis over several levels
+- **Swarm:** debate between agents, with no central supervisor
+- **ReAct:** thought → action → observation until done
+
+**A human decides**
+
+- **Human-in-the-loop:** approvals, high-stakes or compliance steps
+
+**You decide**
+
+- **Custom logic:** mixed patterns with conditional branches
 
 The trade-offs are stated plainly in the guide, and they are the real content:
 
@@ -107,10 +116,15 @@ The body-based routing that the Inference Gateway does natively has to be bolted
 
 ### Which one
 
-| If your models are... | Use | You get | You pay |
-|---|---|---|---|
-| All on GKE GPUs/TPUs | Inference Gateway | Model-aware routing, prefix-cache and load awareness | GKE-only |
-| Spread across runtimes, hybrid, or external | Regional ALB + payload processor | One front door for every backend | A callout to run, and no replica-level routing intelligence |
+**If all your models run on GKE GPUs or TPUs, use the Inference Gateway.**
+
+- **You get:** model-aware routing, with prefix-cache and load awareness
+- **You pay:** it only works with GKE backends
+
+**If your models are spread across runtimes, hybrid, or external, use a regional ALB with a payload processor.**
+
+- **You get:** one front door for every backend
+- **You pay:** a callout to run, and no replica-level routing intelligence
 
 For an agent platform, the second option has a nice property. Agents see one OpenAI-compatible endpoint and one model-name parameter, and you can change what is behind each name (swap a hosted model for a self-hosted one) without touching agent code.
 
