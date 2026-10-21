@@ -24,6 +24,8 @@ Working across all three layers, building [Frink](https://www.fratepietro.com/20
 
 ## 1. llama.cpp: local inference, GGUF quantization, and CPU/GPU flexibility
 
+<img src="/assets/images/posts/logo-llamacpp.png" alt="llama.cpp: Run LLMs on your machine" width="300" />
+
 **[llama.cpp](https://github.com/ggml-org/llama.cpp)** starts from a strict constraint: run open-weight models on the hardware you already own, without a cloud GPU cluster, a Python runtime, or a 400 MB PyTorch dependency tree.
 
 ### 01. Local user and zero-dependency runtime
@@ -71,6 +73,8 @@ llama-server \
 (If you work in Rust or want a single 23 MB binary with verified logit parity against `libllama` and faster decode on Apple Metal, this is the exact space I built [Frink](https://github.com/antonellof/frink) for.)
 
 ## 2. vLLM: continuous batching, PagedAttention, and high-throughput serving
+
+<img src="/assets/images/posts/logo-vllm.png" alt="vLLM: High-throughput inference" width="300" />
 
 **[vLLM](https://github.com/vllm-project/vllm)** solves the opposite problem. You have dedicated datacenter or workstation GPUs, and dozens or hundreds of independent requests arrive at the same time. Your goal is to keep the GPU's Tensor Cores saturated and serve the highest possible tokens per second per dollar.
 
@@ -122,6 +126,8 @@ vllm serve Qwen/Qwen2.5-32B-Instruct \
 - Broadest model architecture and hardware accelerator support (NVIDIA, AMD ROCm, Intel, TPU)
 
 ## 3. SGLang: RadixAttention, cache-aware routing, and agent workflows
+
+<img src="/assets/images/posts/logo-sglang.png" alt="SGLang: Built for agents and multi-turn" width="300" />
 
 **[SGLang](https://github.com/sgl-project/sglang)** targets workloads where requests are not isolated one-shot completions. Modern AI applications run multi-turn conversations, ReAct and MCP tool loops, few-shot extraction, and retrieval-augmented generation (RAG).
 
