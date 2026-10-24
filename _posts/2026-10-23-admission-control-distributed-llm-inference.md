@@ -4,6 +4,7 @@ title: "Admission Control for Distributed LLM Inference"
 date: 2026-10-23
 categories: [Deep Dive]
 image: /assets/images/posts/admission-control-five-layers.png
+math: true
 tags: [LLM Inference, Admission Control, Load Shedding, KV Cache, AI Agents, vLLM, SGLang, TensorRT-LLM, NVIDIA Dynamo, llm-d, Ray Serve, Mooncake, Distributed Systems, GPU Orchestration]
 excerpt: "Most writing on distributed LLM inference is about routing: which GPU should take a request. The other half is admission control: whether to take it at all. How vLLM, SGLang, TensorRT-LLM, TGI, Dynamo, llm-d, Ray Serve, Mooncake, and Cognitora decide to accept, queue, or shed requests, and why agents need a different approach."
 ---
@@ -44,9 +45,11 @@ A quick recap. The router splits the prompt into token blocks and chains their h
 
 Every router then mixes that prefix score with load. In Cognitora it's a weighted sum:
 
-```text
-score = 0.55·kv_overlap + 0.25·(1 − queue_depth/64) + 0.10·(1 − power/max_power) + 0.10·free_kv_ratio
-```
+$$
+\text{score} = 0.55\,O + 0.25\left(1 - \frac{q}{64}\right) + 0.10\left(1 - \frac{P}{P_{\max}}\right) + 0.10\,F
+$$
+
+Here $$O$$ is the KV prefix overlap, $$q$$ the queue depth, $$P$$ the power draw against its cap $$P_{\max}$$, and $$F$$ the share of KV cache that's free.
 
 llm-d does something similar with weighted scorers, plus an affinity filter that breaks stickiness when the sticky pods get much slower than the rest.
 
@@ -71,13 +74,13 @@ In practice admission control is a sequence of checks, cheapest first. Products 
 
 **Validation.** Reject anything that should never reach a GPU: bad JSON, unknown models, missing credentials, oversized bodies, out-of-range parameters. TGI bounds things like `--max-best-of` and `--max-stop-sequences` and returns 422, Dynamo caps body size, and per-key rate limits belong here too. It costs microseconds.
 
-**Context and budget.** Check that `input_tokens + max_output_tokens` fits the model's context window. vLLM returns 400 when it doesn't, TGI 422. This layer matters more than it looks, because `max_tokens` is the worst-case KV reservation. A client that asks for 32,000 tokens and stops after 200 makes conservative schedulers hold memory for nothing. SGLang's [tuning guide](https://docs.sglang.io/docs/advanced_features/hyperparameter_tuning) points at exactly this when KV usage is low but requests are still queueing. Sensible `max_tokens` defaults per route give you capacity for free.
+**Context and budget.** Check that the request fits the model's context window: $$\text{input\_tokens} + \text{max\_output\_tokens} \le \text{context\_window}$$. vLLM returns 400 when it doesn't, TGI 422. This layer matters more than it looks, because `max_tokens` is the worst-case KV reservation. A client that asks for 32,000 tokens and stops after 200 makes conservative schedulers hold memory for nothing. SGLang's [tuning guide](https://docs.sglang.io/docs/advanced_features/hyperparameter_tuning) points at exactly this when KV usage is low but requests are still queueing. Sensible `max_tokens` defaults per route give you capacity for free.
 
 **KV and token budget.** This is the check that only LLM serving needs: can the GPU hold this request's KV cache right now without running out of memory or evicting someone? Engines answer it differently. vLLM caps `max_num_seqs` and `max_num_batched_tokens`, overcommits memory, and preempts and recomputes a request when it runs out. SGLang predicts how much running requests will grow (tunable with `--schedule-conservativeness`) and retracts requests when the guess turns out wrong. TensorRT-LLM lets you choose: `GUARANTEED_NO_EVICT`, the default, reserves enough for every admitted request to finish, while `MAX_UTILIZATION` packs harder and pauses requests when memory runs out. One [benchmark on v1.2.1](https://github.com/NVIDIA/TensorRT-LLM/issues/16827) saw `MAX_UTILIZATION` lose 40% of its throughput, with 9x worse p99 time per output token, under memory pressure. The gap mostly closed in 1.3.0rc22, but the point stands: overcommitting only pays while eviction stays rare.
 
 At the fleet level, [Dynamo](https://docs.nvidia.com/dynamo/user-guides/fault-tolerance/request-rejection) marks a worker busy when its decode KV usage or active prefill tokens cross a threshold, and llm-d's saturation detector does the same with KV utilization and queue depth. One gotcha from the Dynamo docs: decode-block thresholds only work if output tokens are counted (`--router-track-output-blocks`), and the most common failure is a threshold that never fires because load events aren't reaching the frontend.
 
-**Queue capacity.** The engine's memory check decides who runs next, not who waits, so something has to cap the waiting room. TGI has done this since 2023 with `--max-concurrent-requests` (default 128) and a 429. vLLM's queue was [unbounded for a long time](https://github.com/vllm-project/vllm/issues/18826). It now has `max_num_queued_reqs`, which returns 503, and `max_num_queued_tokens`, which caps the prompt tokens waiting for prefill. The docs suggest setting the second one to `target_TTFT × prefill_throughput`, which turns a queue cap into a latency budget. It's my favourite knob in this whole space. SGLang has `--max-queued-requests`, and Ray Serve has `max_queued_requests` with a 503 or 429 plus `Retry-After`. Dynamo returns 529 when every worker is busy, and can also hold requests in a router queue and route them later with fresher metrics. In Cognitora I count in-flight requests per model and role (prefill, decode, or both), so a burst of long prompts can't eat the capacity short chat turns need.
+**Queue capacity.** The engine's memory check decides who runs next, not who waits, so something has to cap the waiting room. TGI has done this since 2023 with `--max-concurrent-requests` (default 128) and a 429. vLLM's queue was [unbounded for a long time](https://github.com/vllm-project/vllm/issues/18826). It now has `max_num_queued_reqs`, which returns 503, and `max_num_queued_tokens`, which caps the prompt tokens waiting for prefill. The docs suggest setting the second one to $$\text{TTFT}_{\text{target}} \times \text{prefill\_throughput}$$, which turns a queue cap into a latency budget. It's my favourite knob in this whole space. SGLang has `--max-queued-requests`, and Ray Serve has `max_queued_requests` with a 503 or 429 plus `Retry-After`. Dynamo returns 529 when every worker is busy, and can also hold requests in a router queue and route them later with fresher metrics. In Cognitora I count in-flight requests per model and role (prefill, decode, or both), so a burst of long prompts can't eat the capacity short chat turns need.
 
 **Priority and flow control.** The last layer decides who gets whatever capacity is left. llm-d and the Gateway API Inference Extension go furthest here. Requests wait in the gateway, sorted by tenant and priority band. A dispatcher picks by priority, then by fairness within a band, and nothing goes out while the saturation detector says the pool is full. Negative-priority requests are sheddable, protected ones are never displaced, and every queued request has a TTL that clients can shorten with a header. Inside the engines, vLLM and SGLang both support priority scheduling, and when SGLang's queue is full it drops the lowest-priority waiting request instead of the new one if the new one outranks it. Cognitora can also shed low-priority traffic while grid carbon intensity is high, which pushes deferrable batch work to cleaner hours.
 
@@ -128,7 +131,7 @@ For a fleet of vLLM replicas behind a cache-aware router:
 1. Authenticate, rate-limit per key, and cap request size at the gateway.
 2. Set `max_model_len` deliberately, and use per-route `max_tokens` defaults well below it.
 3. Tune `max_num_seqs` and `max_num_batched_tokens`, watch the preemption counter, and mark replicas busy at around 0.8 to 0.85 KV usage.
-4. Set `max_num_queued_reqs` and `max_num_queued_tokens = target_TTFT × prefill_throughput`, and return 429 or 529 with `Retry-After`.
+4. Set `max_num_queued_reqs`, set `max_num_queued_tokens` to $$\text{TTFT}_{\text{target}} \times \text{prefill\_throughput}$$, and return 429 or 529 with `Retry-After`.
 5. Mark interactive traffic as protected and batch work as sheddable, with a queue TTL shorter than the client timeout.
 
 If agents make up a lot of your traffic, also cap concurrent agents, and lower that cap when the hit rate drops.
