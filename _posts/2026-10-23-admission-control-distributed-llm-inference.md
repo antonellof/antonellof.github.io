@@ -1,12 +1,12 @@
 ---
-
-## layout: post
+layout: post
 title: "Admission Control for Distributed LLM Inference"
 date: 2026-10-23
 categories: [Deep Dive]
 image: /assets/images/posts/admission-control-five-layers.png
 tags: [LLM Inference, Admission Control, Load Shedding, KV Cache, AI Agents, vLLM, SGLang, TensorRT-LLM, NVIDIA Dynamo, llm-d, Ray Serve, Mooncake, Distributed Systems, GPU Orchestration]
 excerpt: "Most writing on distributed LLM inference is about routing: which GPU should take a request. The other half is admission control: whether to take it at all. How vLLM, SGLang, TensorRT-LLM, TGI, Dynamo, llm-d, Ray Serve, Mooncake, and Cognitora decide to accept, queue, or shed requests, and why agents need a different approach."
+---
 
 Most of what I read about distributed LLM inference is about routing. Which GPU should take this request? Ideally the one that already has the prompt's prefix in its KV cache and isn't drowning in work. SGLang, NVIDIA Dynamo, llm-d, the GKE Inference Gateway, and [Cognitora](https://inference.cognitora.dev) all do some form of cache-aware routing now.
 
