@@ -92,12 +92,10 @@ Banking shows the rules most clearly. In October 2026 Deutsche Bank [deployed an
 
 Healthcare adds isolation before capacity. A German university hospital [runs DeepSeek-R1 on-premise through vLLM](https://arxiv.org/abs/2604.22768) behind network segmentation and egress filtering, with approval to process unanonymised patient data. Source-anchored tasks such as report correction scored well, open-ended conclusions produced clinical errors, and the platform is small in GPUs and large in security engineering. The public sector scales differently: "OpenAI for Germany" runs on [SAP's Delos Cloud, growing to 4,000 GPUs](https://www.techradar.com/pro/germany-is-getting-its-own-sovereign-version-of-openai) for millions of public employees, a sovereign-cloud tenancy under national law rather than hardware per ministry. Research institutions live in a batch scheduler, with data gravity to the campus and tender calendars longer than a hardware generation, which is why Helmholtz Munich moved about 300 servers to colocation and large training runs go to public AI Factories such as JUPITER.
 
-| Sector | Typical users | Use cases that clear risk review first | What shapes the design |
-| --- | --- | --- | --- |
-| Banking and insurance | Advisers, analysts, operations, compliance | Grounded document work, policy checks, code assistance | ECB cloud guide, DORA register and incident reporting, exit strategy, key management, in-country data |
-| Healthcare | Clinicians, researchers | Source-anchored tasks: report correction, simplification, guideline lookup | Patient data approval, network isolation, bursty clinical hours |
-| Public sector | Civil servants across agencies | Drafting, search over regulations, citizen-service support | Sovereign cloud tenancy under national law, separate hardware for classified data |
-| Research | Researchers, students | Training runs, simulation, inference for analysis | Data gravity to the campus, Slurm, public AI Factories, tender calendars |
+<figure>
+  <img src="{{ '/assets/images/posts/private-ai-sizing-sectors.png' | absolute_url }}" alt="Table of four sectors. Banking and insurance: advisers, analysts, operations and compliance, grounded document work, policy checks and code assistance, shaped by the ECB cloud guide, DORA register and incident reporting, exit strategy, key management and in-country data. Healthcare: clinicians and researchers, source-anchored tasks such as report correction, shaped by patient data approval, network isolation and bursty clinical hours. Public sector: civil servants across agencies, drafting and search over regulations, shaped by sovereign cloud tenancy under national law and separate hardware for classified data. Research: researchers and students, training runs, simulation and inference, shaped by data gravity to the campus, Slurm, public AI Factories and tender calendars.">
+  <figcaption>The sizing arithmetic is the same in every sector. The users, the questions and the rules are not.</figcaption>
+</figure>
 
 ## 4. Ask about the room before you ask about the rack
 
@@ -128,11 +126,10 @@ Fill it in with today's numbers. In October 2026 an [8-GPU H100 system cost 250,
 
 At 100 percent utilisation that is about 2.20 dollars per GPU-hour in the US and 2.40 in Europe. Real utilisation is the divisor:
 
-| Average utilisation | Loaded cost per GPU-hour, US power (Oct 2026) | Europe power (Oct 2026) |
-| --- | --- | --- |
-| 70 percent | 3.10 dollars | 3.40 dollars |
-| 50 percent | 4.40 dollars | 4.80 dollars |
-| 30 percent | 7.30 dollars | 8.00 dollars |
+<figure>
+  <img src="{{ '/assets/images/posts/private-ai-sizing-loaded-cost.png' | absolute_url }}" alt="Loaded cost per GPU-hour for an 8-GPU H100 system in October 2026: 2.20 dollars at 100 percent utilisation with US power, 2.40 in Europe. At 70 percent 3.10 and 3.40, at 50 percent 4.40 and 4.80, at 30 percent 7.30 and 8.00. The 2.20 is 1.02 hardware over four years, 0.21 electricity, 0.11 hosting and software, 0.86 people. On-demand cloud the same month: H100 about 3.25 dollars, H200 4.40, B200 around 5.70 on spot, large hyperscalers 6 to 7.">
+  <figcaption>Same hardware, same power, same people. The hours you actually use are the divisor.</figcaption>
+</figure>
 
 Compare with the cloud: the [market median for an H100 was about 3.25 dollars per GPU-hour](https://www.cloudzero.com/blog/h100-gpu-cost/) on demand, 4.40 for an H200, around 5.70 for a B200 on spot, and 6 to 7 at the large hyperscalers. At these prices a private platform beats on-demand cloud above roughly 60 to 70 percent utilisation and loses below 50, before counting data control. The crossover moves as both sides reprice, which is why the utilisation sensitivity, not the price, is the durable part of the case. One [unit-economics analysis](https://introl.com/blog/inference-unit-economics-true-cost-per-million-tokens-guide) puts the breakeven against managed APIs above 8,000 conversations a day, which matches step 1.
 
