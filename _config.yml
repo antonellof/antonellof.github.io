@@ -2,8 +2,8 @@
 title: Antonello Fratepietro
 email: antonello.f at gmail dot com
 description: >-
-  AI Infrastructure Architect | NVIDIA GPU platforms, LLM inference at scale, enterprise AI architecture.
-  Writings on inference, GPUs, distributed systems, cloud architecture and engineering leadership.
+  AI Cloud Engineer and Architect | LLM inference, NVIDIA GPU infrastructure, generative AI on AWS and Google Cloud.
+  Writing about cloud architecture, inference, GPUs, distributed systems and engineering leadership.
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "https://www.fratepietro.com" # the base hostname & protocol for your site
 
