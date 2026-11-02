@@ -4,7 +4,7 @@ title: About Me
 permalink: /about/
 ---
 
-I'm an AI Cloud Engineer and Architect working mostly on LLM inference and NVIDIA GPU infrastructure. I design and run the GPU platforms that serve LLMs, from provisioning and inference serving to performance tuning. On AWS and Google Cloud I also build the generative AI and agentic applications that run on top of them.
+I'm an AI Cloud Engineer and Architect interested mostly in LLM inference, Agentic AI and Cloud.
 
 Certified in NVIDIA AI Infrastructure & Operations, NVIDIA Agentic AI, NVIDIA Gen AI LLMs, AWS Generative AI Developer Professional, AWS Solutions Architect Associate, Google Cloud Professional Cloud Developer, Google Cloud Associate Cloud Engineer, and Databricks.
 
