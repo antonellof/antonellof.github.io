@@ -1,0 +1,79 @@
+<div class="mini-games" id="mini-games">
+  <canvas tabindex="0" role="img" aria-label="Mini game" width="240" height="160"></canvas>
+  <div class="mini-games-controls">
+    <small>Read the blog or play a game :)</small>
+    <button type="button" class="mini-games-next">Another game</button>
+  </div>
+</div>
+
+<script src="{{ '/assets/js/mini-games.js' | relative_url }}" defer></script>
+
+<style>
+.mini-games {
+  flex-shrink: 0;
+  margin-left: 2rem;
+  text-align: center;
+}
+
+.mini-games canvas {
+  width: 240px;
+  height: 160px;
+  border: 2px solid #e8e8e8;
+  border-radius: 4px;
+  display: block;
+  background: #0000AA;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  touch-action: none; /* Prevent default touch behaviors like scrolling */
+  user-select: none; /* Prevent text selection on touch */
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+}
+
+.mini-games canvas:focus { outline: none; }
+.mini-games canvas:focus-visible { outline: 2px solid #0088FF; outline-offset: 2px; }
+
+.mini-games-controls {
+  margin-top: 0.5rem;
+  color: #666;
+  font-size: 0.75rem;
+}
+
+.mini-games-controls small { display: block; }
+
+.mini-games-next {
+  margin-top: 0.25rem;
+  padding: 0.15rem 0.6rem;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.mini-games-next:hover { color: #0088FF; }
+
+@media (prefers-color-scheme: dark) {
+  .mini-games canvas {
+    border-color: #444;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .mini-games {
+    margin-left: 0;
+    margin-top: 2rem;
+    width: 100%;
+  }
+
+  .mini-games canvas {
+    width: 100%;
+    max-width: 240px;
+    height: auto;
+    margin: 0 auto;
+  }
+}
+</style>
