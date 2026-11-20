@@ -9,7 +9,7 @@ description: "Building WRF 4.7.1 and its NetCDF/HDF5/MPI chain with Spack 1.x fo
 excerpt: "WRF is a good test of whether a toolchain is usable: about fifty dependencies, Fortran modules that must come from one compiler, and an interactive configure script. These are the three problems I hit on the way to a working wrf.exe."
 ---
 
-The second part of my [EPYC toolchain work](/2026/epyc-toolchain-study-memory-probes/) is WRF, a weather model widely used in research and operational forecasting. Weather centres care about time-to-solution, and the choice of compiler and MPI layout shows up directly in it. Before measuring any of that, WRF has to build. The repo is [wrf-epyc](https://github.com/antonellof/wrf-epyc).
+WRF is the first real application in my [EPYC and Instinct project](/2026/epyc-toolchain-study-memory-probes/). Weather and climate centres are among the largest HPC users in Europe, and WRF is one of the most widely used open weather models, so it's a fair test of whether a toolchain holds up outside a benchmark. A forecast that has to be out on time makes time-to-solution the number that matters, and the compiler and MPI layout show up directly in it. Before measuring any of that, WRF has to build. The repo is [wrf-epyc](https://github.com/antonellof/wrf-epyc).
 
 ## The stack
 

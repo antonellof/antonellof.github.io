@@ -6,8 +6,12 @@ categories: [Projects]
 tags: [HPC, AMD EPYC, Benchmarking, STREAM, HPL, Memory Latency, Compilers, Spack]
 image: /assets/images/posts/epyc-probes-latency-m5.png
 description: "Starting an EPYC toolchain study: a small harness for HPL, HPCG and STREAM across three toolchains, and two memory probes that were wrong until a local test caught them."
-excerpt: "I'm starting a study of how much compiler, math library and node configuration choices change performance on AMD EPYC. Before paying for cloud nodes I built the harness and two memory probes, and the first local run showed that both probes were measuring the wrong thing."
+excerpt: "Most of my GPU work has been on NVIDIA. To learn the AMD side properly I'm building classic HPC codes from source on EPYC and Instinct, starting with how much compiler, math library and node configuration choices change the results. Before paying for cloud nodes I built the harness and two memory probes, and the first local run showed that both probes were measuring the wrong thing."
 ---
+
+Almost everything I've done on GPUs so far has been NVIDIA: the CUDA kernels in [Frink](https://github.com/antonellof/frink), the CUDA and MPS checks in [GPUlayer](https://www.gpulayer.dev/), inference stacks on vLLM and TensorRT-LLM. Learning ROCm recently showed me how narrow that view is. The largest AMD machines, Frontier, El Capitan and LUMI, put EPYC CPU cores next to Instinct GPUs, and they were built for classic HPC codes such as weather, molecular dynamics and linear algebra rather than LLMs.
+
+I don't want to learn that world from slides, so I'm doing it the way I'd approach a new inference engine: build the codes from source and measure what changes the numbers.
 
 How much of an HPC benchmark result comes from the hardware, and how much from the choices made before the run? On an EPYC node the compiler, the BLAS library, the NUMA mode and the way ranks are pinned all feed into the result, and I want to know by how much. So I've started a small study: [epyc-toolchain-study](https://github.com/antonellof/epyc-toolchain-study).
 
