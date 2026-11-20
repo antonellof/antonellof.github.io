@@ -1,11 +1,11 @@
 ---
 layout: post
-title: "Can a CFD model find the wind farms? Wind over the Monti Dauni with OpenFOAM"
+title: "Can a CFD model find the wind farms? Wind over the Monti Dauni and the Gargano with OpenFOAM"
 date: 2026-11-20
 categories: [Projects]
-tags: [OpenFOAM, CFD, Wind Energy, Puglia, ERA5, Copernicus, OpenStreetMap, three.js, HPC]
+tags: [HPC, OpenFOAM, CFD, Spack, AOCC, AOCL, oneAPI, MKL, GCC, MPI, STREAM, HPL, AMD EPYC, Wind Energy, Puglia, ERA5]
 image: /assets/images/posts/puglia-wind-mean.png
-description: "A terrain-following OpenFOAM model of the Monti Dauni in Puglia, driven by ten years of ERA5 wind, compared with the 504 wind turbines mapped in OpenStreetMap. Includes a 3D viewer."
+description: "A terrain-following OpenFOAM model of the Monti Dauni in Puglia, driven by ten years of ERA5 wind and compared with the 504 wind turbines in OpenStreetMap, with OpenFOAM, STREAM and HPL built from source for GCC, AMD AOCC/AOCL and Intel oneAPI/MKL."
 excerpt: "The ridges of the Monti Dauni, in northern Puglia, are lined with wind turbines. I built an OpenFOAM model of the terrain from public data only, gave it ten years of ERA5 wind, and checked where it puts the strongest wind against where the turbines actually stand."
 ---
 
@@ -54,9 +54,42 @@ Away from the flat strip at the domain edges there are 264 turbines. At their po
 
 Now the caveat. Developers build on high ground, and high ground is windy. The median turbine is also at percentile 93 of elevation, so height alone explains most of that result. The more useful test compares each turbine only with ground of the same elevation, within 25 m. There the median turbine is still at percentile 80 of modelled wind. The model is picking out exposed crests over sheltered ground at the same height, which is the part a simple elevation map can't do.
 
+## The Gargano
+
+The Gargano, the promontory just north, needed one change: sea and land have very different roughness, 0.0002 m against 0.1 m, so the ground roughness now follows the ISTAT coastline face by face. The domain is a 60 km square at 250 m, about 2.3 million cells, and all twelve directions converged.
+
+<figure>
+  <img src="{{ '/assets/images/posts/puglia-wind-gargano.png' | absolute_url }}" alt="Map of modelled long-term mean wind 100 m above ground over the Gargano promontory and the surrounding sea. The western ridges are darkest, above 6 m/s; inland valleys and a wedge of sea south of the promontory are pale, around 3.5 m/s. A cluster of 17 turbines sits on the plain in the south-west corner.">
+  <figcaption>The Gargano: modelled long-term mean wind 100 m above ground, with the 17 turbines OpenStreetMap has in this square.</figcaption>
+</figure>
+
+The western ridges facing the north-westerlies are the windiest ground. The sea in the lee of the south coast is calm, and the wind slows where it crosses from sea onto land. The 17 turbines in this square all stand on the plain in the south-west corner; the promontory itself, mostly national park, has none.
+
 ## The 3D viewer
 
-The [viewer](https://www.fratepietro.com/puglia-wind/) loads about 1 MB of data and runs in the browser with three.js. You can switch between the long-term mean and the speed-up for any of the twelve directions, and pick the direction from a wind rose where each petal's length is its ERA5 frequency. Particles follow the solved flow 100 m above the ground, and the turbine rotors turn to face the selected wind. Hovering shows the elevation and modelled wind at any point.
+The [viewer](https://www.fratepietro.com/puglia-wind/) has both sites, with a locator map of Puglia, and loads 1 to 3 MB of data and runs in the browser with three.js. You can switch between the long-term mean and the speed-up for any of the twelve directions, and pick the direction from a wind rose where each petal's length is its ERA5 frequency. Particles follow the solved flow 100 m above the ground, and the turbine rotors turn to face the selected wind. Hovering shows the elevation and modelled wind at any point.
+
+## Building it like an HPC job
+
+The container I used to develop the case is fine for getting the physics right, but a prebuilt binary says nothing about the machine it runs on. For anything I time, the stack is built from source with Spack, one environment per toolchain. OpenFOAM 2506 goes on GCC and AOCC; STREAM and HPL on all three:
+
+| Toolchain | Compilers | BLAS / LAPACK | MPI |
+|---|---|---|---|
+| GNU | GCC 13.3 | OpenBLAS | Open MPI 5.0 |
+| AMD Zen Software Studio | AOCC 5.2 | AOCL BLIS and libFLAME | Open MPI 5.0 |
+| Intel oneAPI | icx, ifx 2026.0 | oneMKL | Intel MPI 2021.18 |
+
+Before any CFD run there is a node baseline. `simpleFoam` on a hex mesh does little arithmetic per byte it moves, so memory bandwidth limits it, not FLOPs. STREAM triad gives that ceiling and says where scaling over cores will flatten. HPL is the check on the compiler, BLAS and MPI stack as a whole: if its residual check fails, the build is wrong and nothing measured on it counts. The solver benchmark compares the 100 m wind field of every build with a reference run for the same reason.
+
+Getting the toolchains to build was most of the work:
+
+- In Spack 1.x, `%aocc` binds AOCC to at least one language per package, and the solver is free to use GCC for the rest. A `toolchains:` block that pins C, C++ and Fortran fixes it, and then the whole chain, Open MPI and BLIS included, is built by AOCC.
+- AOCC needs `+license-agreed` before Spack will install it.
+- OpenFOAM pulls in ADIOS2, whose default XRootD backend fails at CMake time: its HTTP plugin needs curl, which the XRootD package doesn't declare. OpenFOAM needs neither XRootD nor ADIOS2's Catalyst plugin, so both are off.
+- The first OpenFOAM install reported success after five minutes and contained no solvers. Spack 1.x passes builds a make jobserver over a named pipe, which GNU make only understands from version 4.4; the container had 4.3, so every `wmake` call stopped at once. OpenFOAM's `Allwmake` then prints "ignoring possible compilation errors" and exits 0. The install script now builds a newer make first and checks that `simpleFoam` exists before it calls a build done.
+- HPL passes its residual check with GCC and OpenBLAS and with AOCC and BLIS. With oneAPI and MKL it fails, also with MKL forced onto its SSE4.2 code path. That was x86 under emulation on a laptop, so it goes on the list to recheck on real hardware rather than into a conclusion.
+
+The timed comparison comes next, on an AMD EPYC node: STREAM and HPL per toolchain, OpenFOAM with GCC against AOCC and `-march=znver4` against generic x86-64-v3, and strong scaling from one rank to a full socket with scotch against hierarchical domain decomposition.
 
 ## What it doesn't do
 
@@ -66,4 +99,4 @@ The [viewer](https://www.fratepietro.com/puglia-wind/) loads about 1 MB of data 
 - OpenStreetMap coverage is volunteered and probably incomplete.
 - It hasn't been checked against a measured wind series yet.
 
-Next is the 50 m mesh on a many-core EPYC node, with OpenFOAM built from source, so I can measure how the solver scales and what a full twelve-direction sweep costs.
+Next is the 50 m mesh on that EPYC node, which also tells me what a full twelve-direction sweep costs.
