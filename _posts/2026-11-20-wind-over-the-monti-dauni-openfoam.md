@@ -89,6 +89,8 @@ Getting the toolchains to build was most of the work:
 - The first OpenFOAM install reported success after five minutes and contained no solvers. Spack 1.x passes builds a make jobserver over a named pipe, which GNU make only understands from version 4.4; the container had 4.3, so every `wmake` call stopped at once. OpenFOAM's `Allwmake` then prints "ignoring possible compilation errors" and exits 0. The install script now builds a newer make first and checks that `simpleFoam` exists before it calls a build done.
 - HPL passes its residual check with GCC and OpenBLAS and with AOCC and BLIS. With oneAPI and MKL it fails, also with MKL forced onto its SSE4.2 code path. That was x86 under emulation on a laptop, so it goes on the list to recheck on real hardware rather than into a conclusion.
 
+With make 4.4 on the path the GCC build of OpenFOAM took about an hour, and it reproduces the container: on the same case after 200 iterations, the 100 m wind fields differ by 0.00055 m/s RMS and at most 0.018 m/s, about 0.1 % of the peak speed. That is the size of difference you expect from a different build and a different domain decomposition, and it is the check every later build has to pass.
+
 The timed comparison comes next, on an AMD EPYC node: STREAM and HPL per toolchain, OpenFOAM with GCC against AOCC and `-march=znver4` against generic x86-64-v3, and strong scaling from one rank to a full socket with scotch against hierarchical domain decomposition.
 
 ## What it doesn't do
