@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Before benchmarking EPYC: memory probes that measure what they claim"
-date: 2026-10-30
+date: 2026-11-10
 categories: [Projects]
 tags: [HPC, AMD EPYC, Benchmarking, STREAM, HPL, Memory Latency, Compilers, Spack]
 image: /assets/images/posts/epyc-probes-latency-m5.png

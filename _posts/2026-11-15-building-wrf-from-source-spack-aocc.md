@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Building WRF from source with Spack: three traps before the first run"
-date: 2026-11-05
+date: 2026-11-15
 categories: [Projects]
 tags: [HPC, WRF, Spack, AOCC, AMD EPYC, Fortran, NetCDF, Compilers]
 image: /assets/images/posts/wrf-epyc-dependency-stack.png
