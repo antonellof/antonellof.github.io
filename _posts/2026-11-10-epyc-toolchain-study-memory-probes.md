@@ -9,7 +9,7 @@ description: "Starting an EPYC toolchain study: a small harness for HPL, HPCG an
 excerpt: "I'm starting a study of how much compiler, math library and node configuration choices change performance on AMD EPYC. Before paying for cloud nodes I built the harness and two memory probes, and the first local run showed that both probes were measuring the wrong thing."
 ---
 
-How much of an HPC benchmark result comes from the hardware, and how much from the choices made before the run? On an EPYC node the compiler, the BLAS library, the NUMA mode and the way ranks are pinned can each move a number by more than the gap between two CPU generations. I want to measure that properly, so I've started a small study: [epyc-toolchain-study](https://github.com/antonellof/epyc-toolchain-study).
+How much of an HPC benchmark result comes from the hardware, and how much from the choices made before the run? On an EPYC node the compiler, the BLAS library, the NUMA mode and the way ranks are pinned all feed into the result, and I want to know by how much. So I've started a small study: [epyc-toolchain-study](https://github.com/antonellof/epyc-toolchain-study).
 
 The plan is three toolchains, each in its own Spack environment:
 
@@ -17,11 +17,11 @@ The plan is three toolchains, each in its own Spack environment:
 - `oneapi`: icx and ifx with MKL
 - `gnu`: GCC with OpenBLAS and FFTW
 
-On top of these run HPL, HPCG and STREAM, plus two small probes of my own for memory latency and bandwidth. Every run writes one JSON file holding the result together with the toolchain, the flags, `lscpu`, `numactl -H` and the pinning that produced it. A number without that context is useless six weeks later.
+On top of these run HPL, HPCG and STREAM, plus two small probes of my own for memory latency and bandwidth. Every run writes one JSON file holding the result together with the toolchain, the flags, `lscpu`, `numactl -H` and the pinning that produced it. Without that context I couldn't compare runs a few weeks apart.
 
 ## Test locally first
 
-Cloud EPYC nodes cost money by the hour, so the harness had to work before I rented one. My laptop is an Apple M5 Max, which has nothing in common with Zen 4, but it's a good place to catch bugs in the tools themselves. That paid off quickly: both probes were wrong on the first run.
+Cloud EPYC nodes cost money by the hour, so the harness had to work before I rented one. My laptop is an Apple M5 Max, a very different CPU from Zen 4, but it's a good place to catch bugs in the tools themselves. That paid off quickly: both probes were wrong on the first run.
 
 ## Bug one: faster than the timer
 
@@ -36,7 +36,7 @@ for (size_t i = 0; i < n; i++)
     s += a[i];
 ```
 
-It reached 16 GB/s in L1 and 17 GB/s from DRAM. Bandwidth that doesn't change between L1 and DRAM isn't bandwidth. Every addition depends on the previous one, and without `-ffast-math` the compiler is not allowed to reorder floating-point sums, so it can't vectorise the loop either. The loop runs at the speed of one FP add's latency, whatever the memory does.
+It reached 16 GB/s in L1 and 17 GB/s from DRAM. If L1 and DRAM give the same number, the loop isn't limited by memory at all. Every addition depends on the previous one, and without `-ffast-math` the compiler is not allowed to reorder floating-point sums, so it can't vectorise the loop either. The loop runs at the speed of one FP add's latency, whatever the memory does.
 
 With eight independent accumulators the same kernel reaches 94 GB/s in L1 and 92 GB/s from DRAM:
 
@@ -45,7 +45,7 @@ With eight independent accumulators the same kernel reaches 94 GB/s in L1 and 92
   <figcaption>The same loop, before and after splitting the sum.</figcaption>
 </figure>
 
-This mistake matters well beyond my probe. Anyone comparing compilers on a reduction loop can end up comparing how willing each compiler is to reassociate floating-point math, which is a flag choice and not a property of the hardware.
+The same thing can skew a compiler comparison: on a reduction loop you may end up measuring how willing each compiler is to reassociate floating-point math, which is a flag choice and not a property of the hardware.
 
 ## The latency probe
 
@@ -62,4 +62,4 @@ On EPYC the same probe also runs under `numactl --cpunodebind=0 --membind=1` to 
 
 The harness drives the whole matrix from one YAML file: toolchains, flag sets (`-O2` to `-Ofast`, `znver4` vs `x86-64-v3`, 512-bit vector preference, LTO) and runtime layouts such as one HPL rank per CCD or one per core. It generates `HPL.dat` and `hpcg.dat` for each run and keeps going when a single configuration fails.
 
-Next comes the part that usually takes longest in HPC work: getting everything to build. I'm starting with WRF, which is famous for exactly that.
+Before any of that runs on EPYC, everything has to build with all three toolchains. I'm starting with WRF, which has the longest dependency chain of the codes I picked.

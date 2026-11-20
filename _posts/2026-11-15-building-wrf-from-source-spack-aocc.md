@@ -6,10 +6,10 @@ categories: [Projects]
 tags: [HPC, WRF, Spack, AOCC, AMD EPYC, Fortran, NetCDF, Compilers]
 image: /assets/images/posts/wrf-epyc-dependency-stack.png
 description: "Building WRF 4.7.1 and its NetCDF/HDF5/MPI chain with Spack 1.x for GCC, AOCC and oneAPI, and the three problems that showed up before anything ran."
-excerpt: "WRF is a good test of whether a toolchain is usable: about fifty dependencies, Fortran modules that must all come from one compiler, and an interactive configure script. Here is what broke on the way to a working wrf.exe."
+excerpt: "WRF is a good test of whether a toolchain is usable: about fifty dependencies, Fortran modules that must come from one compiler, and an interactive configure script. These are the three problems I hit on the way to a working wrf.exe."
 ---
 
-The second part of my [EPYC toolchain work](/2026/epyc-toolchain-study-memory-probes/) is WRF, the weather model behind a lot of operational forecasting. Weather centres care about time-to-solution, and the choice of compiler and MPI layout shows up directly in it. Before measuring any of that, WRF has to build. The repo is [wrf-epyc](https://github.com/antonellof/wrf-epyc).
+The second part of my [EPYC toolchain work](/2026/epyc-toolchain-study-memory-probes/) is WRF, a weather model widely used in research and operational forecasting. Weather centres care about time-to-solution, and the choice of compiler and MPI layout shows up directly in it. Before measuring any of that, WRF has to build. The repo is [wrf-epyc](https://github.com/antonellof/wrf-epyc).
 
 ## The stack
 
@@ -20,15 +20,17 @@ WRF itself is a single `./configure && ./compile em_real`. Everything underneath
   <figcaption>What WRF needs underneath it, as built by Spack 1.2.2 for the GCC toolchain.</figcaption>
 </figure>
 
-The GCC environment comes to 49 packages. In a 16-core Linux container, WRF itself then compiled in 519 seconds. Getting there took three fixes, none of them in WRF.
+The GCC environment comes to 49 packages. In a 16-core Linux container, WRF itself then compiled in 519 seconds. Three problems had to be solved first, all outside WRF's own code.
 
 ## Trap 1: where the variant goes
 
-In Spack 1.x, compilers are ordinary dependencies, and a variant attaches to whatever comes right before it. `stream %gcc +openmp` asks for a GCC built with `+openmp`, which doesn't exist, so the environment never resolves. It has to be `stream +openmp %gcc`. It's a small thing, but a lot of older Spack examples are written the other way round.
+In Spack 1.x, compilers are ordinary dependencies, and a variant attaches to whatever comes right before it. `stream %gcc +openmp` asks for a GCC built with `+openmp`, which doesn't exist, so the environment never resolves. It has to be `stream +openmp %gcc`. Spack 0.x accepted either order, so older examples often have it the other way round.
 
-## Trap 2: `%aocc` doesn't cover Fortran
+## Trap 2: `%aocc` doesn't mean "everything with AOCC"
 
-This one is easy to miss. With `%aocc` on HDF5 and NetCDF-Fortran, the concretized spec showed `%c,cxx=aocc` and `%fortran=gcc`. Spack had quietly picked gfortran for the Fortran parts. In most projects you'd never notice. In WRF the build fails late and confusingly, because Fortran `.mod` files are compiler-specific: flang can't read modules written by gfortran.
+In Spack 1.x, `%aocc` makes AOCC the compiler for at least one of a package's languages, and the solver is free to pick something else for the rest. I checked the concretized specs against a stand-in AOCC entry before the real compiler was installed. `amdfftw %aocc` came out as `%c=aocc %fortran=gcc`. `netcdf-fortran %aocc` came out the other way round, `%fortran=aocc %c=gcc`, with NetCDF-C and HDF5 underneath it built entirely by GCC.
+
+For many packages that mix is harmless. Fortran libraries are different: `.mod` files and the Fortran runtime are specific to each compiler, so NetCDF-Fortran should come from the same compiler that builds WRF. I also want one compiler per toolchain for the comparison itself, otherwise it compares a blend.
 
 The fix is a Spack toolchain that pins all three languages to the same compiler:
 
@@ -47,7 +49,7 @@ and then `netcdf-fortran %aocc_all`. AOCC and oneAPI also have to be installed b
 
 ## Trap 3: the configure menu
 
-WRF's `./configure` is interactive and asks you to pick an option by number. The numbers depend on the platform: on the arm64 box, GNU dmpar was option 3, and two separate "GNU (gfortran/gcc)" lines appeared. The menu text comes from the `DESCRIPTION` lines in `arch/configure.defaults`, so the build script captures the menu, finds the line for the toolchain (`GNU (gfortran/gcc)`, `AMD (flang/clang)`, `INTEL (ifx/icx)`) and answers with that number. I checked those three labels against the 4.7.1 source instead of trusting memory, since they change between releases.
+WRF's `./configure` is interactive and asks you to pick an option by number. The numbers depend on the platform: on the arm64 box, GNU dmpar was option 3, and two separate "GNU (gfortran/gcc)" lines appeared. The menu text comes from the `DESCRIPTION` lines in `arch/configure.defaults`, so the build script captures the menu, finds the line for the toolchain (`GNU (gfortran/gcc)`, `AMD (flang/clang)`, `INTEL (ifx/icx)`) and answers with that number. I checked those three labels against the 4.7.1 source.
 
 ## Next
 
