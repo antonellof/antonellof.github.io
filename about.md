@@ -14,6 +14,7 @@ This blog is where I write about cloud architecture, inference, GPUs, distribute
 
 ## Certifications
 
+**AMD** · [ROCm Certified Associate](https://www.credly.com/badges/8ee4b15f-9175-4ec6-bebb-b58ab8f7cc0c)<br>
 **NVIDIA** · [AI Infrastructure & Operations](https://www.credly.com/badges/6de46f95-d048-4646-9a54-f6de5866fa9a) · [Agentic AI](https://www.credly.com/badges/2d4ed5da-67fb-4393-b642-5180690dee1d) · [Gen AI LLMs](https://www.credly.com/badges/46c43b3d-05cf-43b1-93fc-60cadd397416)<br>
 **AWS** · [Generative AI Developer Professional](https://www.credly.com/badges/31db5b36-c987-417e-b676-2418a398011d) · [Solutions Architect Associate](https://www.credly.com/badges/1f26ed5f-b0f5-46c8-a188-3d3772db88a7)<br>
 **Google Cloud** · [Professional Cloud Developer](https://www.credly.com/badges/44f0971b-68e9-4824-872f-337112075d48) · [Associate Cloud Engineer](https://www.credly.com/badges/661f42ba-ca24-4518-9072-a13eee964d90)<br>
