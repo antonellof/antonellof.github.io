@@ -2,8 +2,9 @@
 title: Antonello Fratepietro
 email: antonello.f at gmail dot com
 description: >-
-  AI Cloud Engineer and Architect | LLM inference, NVIDIA GPU infrastructure, generative AI on AWS and Google Cloud.
-  Writing about cloud architecture, inference, GPUs, distributed systems and engineering leadership.
+  AI Cloud Engineer and Architect | HPC and LLM inference: scientific codes built from source with Spack, GCC,
+  AMD AOCC/AOCL, Intel oneAPI/MKL and MPI, GPU infrastructure on NVIDIA CUDA and AMD ROCm, generative AI on AWS and Google Cloud.
+  Writing about HPC, cloud architecture, inference, GPUs, distributed systems and engineering leadership.
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "https://www.fratepietro.com" # the base hostname & protocol for your site
 
