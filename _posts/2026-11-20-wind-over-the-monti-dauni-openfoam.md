@@ -91,6 +91,8 @@ Getting the toolchains to build was most of the work:
 
 With make 4.4 on the path the GCC build of OpenFOAM took about an hour, and it reproduces the container: on the same case after 200 iterations, the 100 m wind fields differ by 0.00055 m/s RMS and at most 0.018 m/s, about 0.1 % of the peak speed. That is the size of difference you expect from a different build and a different domain decomposition, and it is the check every later build has to pass.
 
+The AOCC build is the slow one here: 3.4 hours, because it is x86 code under emulation on an Arm laptop, with Open MPI built by AOCC as well. It passes the same check, 0.0021 m/s RMS and at most 0.067 m/s, with 99 % of the cells within 0.006 m/s. The maximum is larger than with GCC because almost everything changed at once: compiler, instruction set and the order of floating-point operations, on a run stopped at 200 iterations before it has fully converged. Both builds give the same wind field, which is what has to hold before any timing between them means anything.
+
 The timed comparison comes next, on an AMD EPYC node: STREAM and HPL per toolchain, OpenFOAM with GCC against AOCC and `-march=znver4` against generic x86-64-v3, and strong scaling from one rank to a full socket with scotch against hierarchical domain decomposition.
 
 ## What it doesn't do
