@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Can a CFD model find the wind farms? Wind over the Monti Dauni and the Gargano with OpenFOAM"
-date: 2026-11-20
+date: 2026-1-20
 categories: [Projects]
 tags: [HPC, OpenFOAM, CFD, Spack, AOCC, AOCL, oneAPI, MKL, GCC, MPI, STREAM, HPL, AMD EPYC, Wind Energy, Puglia, ERA5]
 image: /assets/images/posts/puglia-wind-mean.png
