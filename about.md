@@ -57,7 +57,7 @@ This blog is where I write about HPC, cloud architecture, inference, GPUs, distr
 
 - **[Rondine](https://github.com/antonellof/rondine)** 🐦 - Hardware-aware local LLM launcher. Detects the machine, picks a model that fits, and applies tuned configs for Mac, NVIDIA GPUs and DGX Spark instead of leaving you to do flag archaeology. Write-up: *[Rondine: hardware-aware local LLM serving](/2026/rondine-hardware-aware-local-llm-launcher/)*.
 
-- **[MARS](https://github.com/antonellof/MARS)** - GPU-resident multimodal memory substrate for real-time embodied AI. Episode-scoped retrieval as a CUDA kernel-level primitive: 197 µs p99 at N=1M with perfect cross-modal `hit@15`, 33× faster than FAISS-Flat-GPU on the same hardware. Companion paper: *[MARS: Episode-Scoped GPU Retrieval for Real-Time Embodied AI](https://www.fratepietro.com/papers/MARS/main.pdf)*.
+- **[MARS](https://github.com/antonellof/MARS)** (Memory for Autonomous Real-Time Systems) - GPU-resident memory store for real-time embodied AI, with episode scope, temporal decay and cross-modal traversal in one query call. Episode-scoped retrieval runs at about 0.2 ms p99 up to a million memories on one A100. Paper: *[MARS (Memory for Autonomous Real-Time Systems): Episode-Scoped GPU Retrieval for Real-Time Embodied AI](https://www.fratepietro.com/papers/MARS/main.pdf)* ([Zenodo DOI](https://doi.org/10.5281/zenodo.24622392)). Write-up: *[the post](/2026/mars-gpu-memory-realtime-ai/)*.
 
 ## Connect
 
