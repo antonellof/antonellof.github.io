@@ -2,29 +2,24 @@
 layout: post
 title: "MARS (Memory for Autonomous Real-Time Systems): Episode-Scoped GPU Retrieval for Real-Time Embodied AI"
 date: 2026-04-10
-last_modified_at: 2026-11-28
 categories: [Systems]
 tags: [CUDA, GPU, Real-Time Systems, Autonomous Vehicles, Robotics, Memory, Vector Search]
-excerpt: "MARS is a GPU-resident memory store that puts episode scope, temporal decay and cross-modal traversal into one query call. Scoped retrieval runs at about 0.2 ms p99 up to a million memories on one A100. The November 2026 revision corrects several earlier claims and says plainly what is still unmeasured."
+excerpt: "MARS is a GPU-resident memory store that puts episode scope, temporal decay and cross-modal traversal into one query call. Scoped retrieval runs at about 0.2 ms p99 up to a million memories on one A100. What that number does and does not show, and what is still unmeasured."
 ---
-
-*Updated 28 November 2026.* The paper has been revised (Zenodo v3) after I re-checked every table against the stored results. Several claims from the April version of this post were wrong or had no valid measurement behind them, and they are gone. The list of corrections is at the end.
-
-**[Paper (PDF)](https://www.fratepietro.com/papers/MARS/main.pdf)** · **[Zenodo v3](https://doi.org/10.5281/zenodo.24622392)** (DOI 10.5281/zenodo.24622392) · **[Code](https://github.com/antonellof/MARS)**
 
 A ball rolls into the road from behind a parked van. The camera sees only the ball. But 600 ms earlier the microphones picked up children's voices from the same direction, and if that memory can be found now, it raises the prior that a child will follow.
 
 A perception stack usually knows where to look for that memory. It has a track id, a dialogue session, an AR room or a robot sub-task, and the answer almost always sits inside that *episode*. GPU vector-search libraries such as FAISS and cuVS rank by similarity over the whole index, and the application adds scope and recency on top, with an ID filter or by post-processing on the host. [MARS](https://github.com/antonellof/MARS) (Memory for Autonomous Real-Time Systems) puts episode scope, temporal decay and an optional cross-modal graph traversal into one GPU-side query call.
 
-## What the revised paper claims
+**[Paper (PDF)](https://www.fratepietro.com/papers/MARS/main.pdf)** · **[Zenodo](https://doi.org/10.5281/zenodo.24622392)** (DOI 10.5281/zenodo.24622392) · **[Code](https://github.com/antonellof/MARS)**
 
-The claim is narrower than it was in April.
+## What the paper claims
 
-- **Episode-scoped retrieval is fast and nearly flat in N.** With an episode id, the similarity stage covers only that episode's members, so the work drops from Θ(N·D) to Θ(|episode|·D). On one A100 it runs at 0.17 to 0.20 ms p99 from 10K to 1M memories.
-- **That is a latency result.** The synthetic benchmark has 10-node episodes and K=15, so a scoped search returns the whole episode and its hit rate is 1.0 by construction.
-- **The fair comparison is still missing.** A filtered library search (FAISS with `IDSelector`, CAGRA filtered search) does the same restricted work. I have no valid measurement of it, and a per-episode ring buffer with one small SGEMV is faster than MARS on the episode-only case.
-- **Without an episode id, MARS is slower than FAISS.** On random embeddings the global path costs 1.5 to 1.7 times FAISS Flat up to 20K memories and matches it at 50K.
-- **The graph has no measured benefit yet.** Removing the cross-modal bridges, the hubs, or the whole graph changes neither recall nor cross-modal diversity at N ≤ 50K, and on the episode benchmark the BFS re-ranking lowers the hit rate of the global path.
+- Episode-scoped retrieval is fast and nearly flat in N. With an episode id, the similarity stage covers only that episode's members, so the work drops from Θ(N·D) to Θ(|episode|·D). On one A100 it runs at 0.17 to 0.20 ms p99 from 10K to 1M memories.
+- That is a latency result. The synthetic benchmark has 10-node episodes and K=15, so a scoped search returns the whole episode and its hit rate is 1.0 by construction.
+- The fair comparison is still missing. A filtered library search (FAISS with `IDSelector`, CAGRA filtered search) does the same restricted work, and I have not measured it yet. A a per-episode ring buffer with one small SGEMV is faster than MARS on the episode-only case.
+- Without an episode id, MARS is slower than FAISS. On random embeddings the global path costs 1.5 to 1.7 times FAISS Flat up to 20K memories and matches it at 50K.
+- The graph has no measured benefit yet. Removing the cross-modal bridges, the hubs, or the whole graph changes neither recall nor cross-modal diversity at N ≤ 50K, and on the episode benchmark the BFS re-ranking lowers the hit rate of the global path.
 
 ## Episode-scoped against global retrieval
 
@@ -38,7 +33,7 @@ A100 SXM4 40 GB, kids-ball benchmark, paired probes:
 | 1M   | 2.561 ms | 0.197 ms | 13×  | 0.84 |
 
 ![Wall-clock p99 against corpus size on the kids-ball benchmark: unfiltered FAISS Flat rises past 1 ms by 100K, CAGRA stays near 3 ms, the MARS global path rises to 2.5 ms, and the episode-scoped path stays near 0.2 ms](/papers/MARS/figures/fig_episode_scoped_scaling.png)
-*The scoped path stays near 0.2 ms because it scans ten vectors whatever N is. No filtered baseline is plotted because none has been measured validly.*
+*The scoped path stays near 0.2 ms because it scans ten vectors whatever N is. No filtered baseline is plotted; I have not measured one yet.*
 
 At ten vectors the memory-bandwidth term is negligible, so most of the 0.2 ms is launch, copy and synchronization overhead. The scoped path only applies when the episode is known before the query: per-track re-identification in a car, a voice session, an AR room, a robot sub-task.
 
@@ -59,17 +54,15 @@ The probe is an IMAGE vector, and a hit needs a same-episode TEXT and AUDIO vect
 
 ![Bar charts of p99 latency (left, log scale) and hit@15 (right) for FAISS Flat, FAISS IVF, cuVS CAGRA and three MARS configurations at 10K, 100K and 1M memories](/papers/MARS/figures/fig_competitors.png)
 
-Three things in this table are worth reading carefully.
-
 The scoped path is 33 times faster than an unfiltered exhaustive scan at 1M. That is the price a stack pays when it has no episode filter. It says nothing about a stack that has one.
 
 Unfiltered IVF and CAGRA lose the episode at 100K and above. This failure mode is known, and filtered search exists to fix it. One detail is new to me: at 1M the IVF index still recovers 75% of the exact top 96 while finding none of the episode. My guess is that k-means splits this corpus along a direction shared by all nodes in the same template slot, so the lists it probes hold same-slot vectors from other episodes. I have not inspected the partitions to confirm it.
 
-MARS global is slower than FAISS Flat and finds the episode less often, even though both scan every vector. The likely cause is the BFS score rule. A graph neighbour of the top seed inherits about 0.55 of its score, which beats the 0.19 to 0.45 cosine of a true episode member, and graph edges are not chosen by similarity. Running the global path with BFS off would test this, and it is first on the list of re-runs.
+MARS global is slower than FAISS Flat and finds the episode less often, even though both scan every vector. The likely cause is the BFS score rule. A graph neighbour of the top seed inherits about 0.55 of its score, which beats the 0.19 to 0.45 cosine of a true episode member, and graph edges are not chosen by similarity. Running the global path with BFS off would test this.
 
 ## The corpus is synthetic
 
-Each kids-ball episode has three IMAGE, four AUDIO and three TEXT vectors. Same-episode cosine is about 0.32, and cross-episode cosine stays below 0.27. The April post said one IMAGE, three AUDIO and six TEXT with cosine above 0.85. Both numbers were wrong; the new ones are measured from the generator.
+Each kids-ball episode has three IMAGE, four AUDIO and three TEXT vectors. Same-episode cosine is about 0.32, and cross-episode cosine stays below 0.27, so the episode members are almost always the probe's nearest neighbours. The benchmark tests whether a method can find a ten-vector cluster among a million distractors. It does not test the harder case in the opening story, where the useful memory is less similar than the irrelevant ones.
 
 Two more limits apply. Timestamps rise steadily through the corpus, so episode and recency are perfectly correlated and decay partly does the work of the scope. And real CLIP or CLAP embeddings look nothing like this geometry. A run on real encoder outputs is the experiment the paper most lacks.
 
@@ -86,13 +79,17 @@ Embeddings, modality tags and timestamps live in GPU memory as nodes of a CSR gr
 
 The episode-scoped path restricts step 1 to the episode's member range and skips step 4.
 
-The graph (I call it a Neural Shortcut Network, though nothing in it is learned) is a Watts-Strogatz small-world graph plus cross-modal bridges: every node gets one edge to a node of each other modality. That guarantees a one-hop BFS reaches every modality. It does not make the reached nodes relevant, and the ablation confirms they do not change the results.
+The graph (I call it a Neural Shortcut Network, though nothing in it is learned) is a Watts-Strogatz small-world graph plus cross-modal bridges: every node gets one edge to a node of each other modality. That guarantees a one-hop BFS reaches every modality. It does not make the reached nodes relevant, and an ablation in the paper finds they do not change the results.
 
 A hand-written FP16 kernel beats cuBLAS by 41% at 10K memories and loses by 49% at 1M. The build defaults to cuBLAS.
 
+## Temporal decay
+
+Recency is part of relevance for a tracking query, and MARS ranks by `similarity × exp(-λ·age)` before selecting the top K. In a simulated AV scene (200 tracked objects, 9,000 memories), ranking by cosine alone left 49% of the top 10 more than five seconds old and only 22% inside the two-second tracking window. Applying the same decay score to a FAISS shortlist raised that to 91% and removed stale results. It also lowered object recall from 1.00 to 0.94, because in 6% of queries no detection of the queried object stayed in the top 10. That run measures the score, not the MARS kernel, and pushing the scenario through MARS itself is on the list below.
+
 ## Deadlines
 
-Four demonstrators meet their p99 budgets with no misses on an A100 PCIe, measured on the previous pipeline generation:
+Four demonstrators meet their p99 budgets with no misses on an A100 PCIe, using the earlier custom-kernel version of the pipeline:
 
 | Workload | Rate | Memories | Budget | p99 |
 |----------|------|---------:|-------:|----:|
@@ -103,7 +100,7 @@ Four demonstrators meet their p99 budgets with no misses on an A100 PCIe, measur
 
 They also pass on an RTX 5060 Ti, at 0.29 to 0.67 ms. All of these are single-query numbers. A car issues one retrieval per tracked object per frame, and 200 queries at 0.26 ms each would take three times a 60 Hz frame. Batched retrieval has not been built or measured.
 
-The current pipeline runs the global path under 1 ms up to about 100K memories and at 2.7 ms at 1M.
+The current cuBLAS and CUB pipeline runs the global path under 1 ms up to about 100K memories and at 2.7 ms at 1M.
 
 ## What is still missing
 
@@ -113,19 +110,10 @@ The paper lists these in its future work section. The ones that decide whether M
 2. Episodes larger than K, so the scoped path has to rank and its recall can be measured.
 3. Real encoder outputs over a labelled cross-modal dataset.
 4. The global path with BFS disabled.
-5. Locked clocks, at least 10K queries per configuration, and confidence intervals on every p99.
+5. The temporal scenario run through MARS, with a sweep of λ against object recall.
+6. Locked clocks, at least 10K queries per configuration, and confidence intervals on every p99.
 
 Insertion is another gap. New memories are staged on the host and the graph is re-uploaded before the next query, so MARS has no fast streaming insert yet.
-
-## What changed since April
-
-- The filtered-FAISS figure ("within about 1.3×") is withdrawn. FAISS 1.14.1's GPU flat index does not apply ID selectors, and the run that produced the number left no output.
-- The temporal-decay table compared MARS with FAISS, but the script never ran MARS. The quality gain from decay holds in a FAISS-based emulation (temporal precision 0.22 to 0.91), at some cost in object recall (1.00 to 0.94).
-- The streaming-insert numbers had no source and are removed.
-- The ablation now matches the stored results: no measurable effect of the graph.
-- The kids-ball corpus description is corrected.
-- The deadline figure with an episode-scoped bar at "80% headroom" is gone; its labels did not match the measurements.
-- Seventeen bibliography entries are fixed.
 
 ## Try it
 
@@ -144,6 +132,6 @@ The code is MIT licensed. If you build real-time perception or robotics loops, I
 
 **Links:**
 - [Paper (PDF)](https://www.fratepietro.com/papers/MARS/main.pdf)
-- [Zenodo v3, DOI 10.5281/zenodo.24622392](https://doi.org/10.5281/zenodo.24622392) (all versions: [10.5281/zenodo.19493868](https://doi.org/10.5281/zenodo.19493868))
+- [Zenodo, DOI 10.5281/zenodo.24622392](https://doi.org/10.5281/zenodo.24622392)
 - [GitHub repository](https://github.com/antonellof/MARS)
 - [Head-to-head raw results](https://github.com/antonellof/MARS/tree/main/results/competitors_20260417)
